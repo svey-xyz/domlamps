@@ -12,8 +12,8 @@ const { title, eyebrow, id = 'read-more' } = Astro.props;
 ---
 
 <Box as="article" z={6} class="rm" id={id} aria-labelledby={`${id}-title`}>
-  <Light class="candle" z={26} radius={320} intensity={1.2} color="#ffb163" flicker={0.28} soft={12} style="left:25%;top:40px" />
-  <Light class="candle" z={26} radius={320} intensity={1.2} color="#ffb163" flicker={0.28} soft={12} style="left:75%;top:40px" />
+  <Light class="candle" z={26} radius={320} intensity={1.2} color="#ffb163" flicker={0.28} size={4} style="left:25%;top:40px" />
+  <Light class="candle" z={26} radius={320} intensity={1.2} color="#ffb163" flicker={0.28} size={4} style="left:75%;top:40px" />
 
   <header class="rm-head">
     {eyebrow && <p class="eyebrow">{eyebrow}</p>}
@@ -23,7 +23,7 @@ const { title, eyebrow, id = 'read-more' } = Astro.props;
   <div class="rm-body"><slot /></div>
 
   <Box as="button" type="button" material="glass" tint="#ffae3d" opacity={0.3} class="rm-btn" aria-expanded="false" aria-controls={id}>
-    <Light class="lantern" z={-12} radius={820} color="#ffc47e" soft={7} />
+    <Light class="lantern" z={-12} radius={820} color="#ffc47e" size={16} />
     <span class="rm-label">Light the lantern</span>
   </Box>
 </Box>

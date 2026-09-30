@@ -19,15 +19,17 @@ interface Props extends Omit<HTMLAttributes<'span'>, 'dir'> {
   cone?: number;
   /** Sun elevation, degrees. */
   elevation?: number;
-  /** Shadow hardness: higher = crisper penumbra. */
-  soft?: number;
+  /** Point/spot: radius of the emitting sphere, CSS px. Bigger = softer shadows and light. */
+  size?: number;
+  /** Sun: angular radius, degrees. Bigger = softer shadows. */
+  spread?: number;
   /** Flicker amplitude 0–1. */
   flicker?: number;
   /** Glow size multiplier; 0 disables the bloom. */
   bloom?: number;
 }
 
-const { type = 'point', z, intensity, radius, color, dir, cone, elevation, soft, flicker, bloom, class: cls, style, ...rest } = Astro.props;
+const { type = 'point', z, intensity, radius, color, dir, cone, elevation, size, spread, flicker, bloom, class: cls, style, ...rest } = Astro.props;
 const vars = [
   // Only emit what was passed; @property initial values cover the rest and CSS can transition them.
   z !== undefined && `--lz:${z}`,
@@ -37,8 +39,10 @@ const vars = [
   dir !== undefined && `--dir:${dir}deg`,
   cone !== undefined && `--cone:${cone}deg`,
   elevation !== undefined && `--elevation:${elevation}deg`,
+  size !== undefined && `--size:${size}`,
+  spread !== undefined && `--spread:${spread}deg`,
   style,
 ].filter(Boolean).join(';') || undefined;
 ---
 
-<span data-light={type} data-soft={soft} data-flicker={flicker} data-bloom={bloom} aria-hidden="true" class:list={['lumen-light', cls]} style={vars} {...rest}><slot /></span>
+<span data-light={type} data-flicker={flicker} data-bloom={bloom} aria-hidden="true" class:list={['lumen-light', cls]} style={vars} {...rest}><slot /></span>

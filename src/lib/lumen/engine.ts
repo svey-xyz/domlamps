@@ -202,7 +202,7 @@ export class Lumen {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['style', 'class', 'hidden', 'open', 'data-box', 'data-light', 'data-material', 'data-opacity', 'data-soft', 'data-shine'],
+      attributeFilter: ['style', 'class', 'hidden', 'open', 'data-box', 'data-light', 'data-material', 'data-opacity', 'data-shine'],
     });
     this.cleanup.push(() => mo.disconnect());
   }
@@ -331,7 +331,8 @@ export class Lumen {
       const color = linearColor(cs.getPropertyValue('--light-color'));
       const dir = num(cs, '--dir', 90) * DEG;
       const cone = num(cs, '--cone', 50) * DEG;
-      const soft = numAttr(el.dataset.soft, 10);
+      // Emitter size: point/spot sphere radius in px; the sun's angular radius, sent as its tangent.
+      const size = type === 'sun' ? Math.tan(Math.min(num(cs, '--spread', 2), 45) * DEG) : Math.max(0, num(cs, '--size', 12));
       const o = m * 4;
 
       if (type === 'sun') {
@@ -343,7 +344,7 @@ export class Lumen {
         this.ls.set([Math.cos(dir), Math.sin(dir), Math.cos(cone / 2), Math.cos((cone / 2) * 0.6)], o);
       }
       this.lc.set([color[0], color[1], color[2], intensity], o);
-      this.lm.set([LIGHT_TYPES[type], soft, ownerEl ? (owners.get(ownerEl) ?? -1) : -1, num(cs, '--elevation', 45) * DEG], o);
+      this.lm.set([LIGHT_TYPES[type], size, ownerEl ? (owners.get(ownerEl) ?? -1) : -1, num(cs, '--elevation', 45) * DEG], o);
       this.lightStates.push({ el, x, y, color, intensity, radius, bloom: numAttr(el.dataset.bloom, type === 'sun' ? 0 : 1) });
       m++;
     }

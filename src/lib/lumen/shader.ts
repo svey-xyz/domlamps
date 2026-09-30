@@ -38,7 +38,7 @@ uniform int  uLightCount;
 uniform vec4 uLP[MAX_LIGHTS];  // x, y, z, radius (sun: max shadow length)
 uniform vec4 uLC[MAX_LIGHTS];  // linear r, g, b, intensity
 uniform vec4 uLS[MAX_LIGHTS];  // dir.x, dir.y, cosOuter, cosInner
-uniform vec4 uLM[MAX_LIGHTS];  // type (0 point, 1 spot, 2 sun), softness k, owner box index (-1 none), sun elevation (rad)
+uniform vec4 uLM[MAX_LIGHTS];  // type (0 point, 1 spot, 2 sun), size (point/spot: sphere radius px; sun: tan of angular radius), owner box index (-1 none), sun elevation (rad)
 
 uniform vec3  uAmbient;  // linear
 uniform vec2  uRes;      // canvas size in device px of the light map
@@ -64,20 +64,32 @@ float sdBox(vec3 p, vec4 b, float h, float r) {
   return min(max(w.x, w.y), 0.0) + length(max(w, 0.0));
 }
 
-// Soft shadow from ONE box: sphere-trace the ray against that box only.
-// 0 = fully blocked, 1 = unblocked; k controls penumbra hardness.
-float boxShadow(vec3 ro, vec3 rd, float tMax, vec4 b0, vec4 b1, float k) {
-  float res = 1.0;
-  float t = 1.0;
-  for (int s = 0; s < 40; s++) {
-    if (t >= tMax) break;
-    float h = sdBox(ro + rd * t, b0, b1.x, b1.y);
-    if (h < 0.05) return 0.0;
-    res = min(res, k * h / t);
-    t += max(h, 1.5);
+// Soft shadow from ONE box, lit by a spherical light.
+// The rays from the receiver to the light's disc form a cone: radius 0 at the receiver,
+// growing linearly with t (r = slope * t). res = min over the ray of sd / r, where sd is the
+// box's SIGNED distance, so -1 = light fully hidden, +1 = fully visible, and the penumbra
+// straddles the hard shadow edge instead of sitting outside it.
+// The box is convex, so sd is convex along the ray and sd / r is unimodal in t: a golden-section
+// search finds the true minimum. No marching steps, so no step banding.
+float boxShadow(vec3 ro, vec3 rd, float tMax, vec4 b0, vec4 b1, float slope) {
+  const float G = 0.6180340;
+  float a = 1.0, b = tMax;
+  float x1 = b - G * (b - a), x2 = a + G * (b - a);
+  float f1 = sdBox(ro + rd * x1, b0, b1.x, b1.y) / (slope * x1);
+  float f2 = sdBox(ro + rd * x2, b0, b1.x, b1.y) / (slope * x2);
+  for (int i = 0; i < 18; i++) {
+    if (f1 < f2) {
+      b = x2; x2 = x1; f2 = f1;
+      x1 = b - G * (b - a);
+      f1 = sdBox(ro + rd * x1, b0, b1.x, b1.y) / (slope * x1);
+    } else {
+      a = x1; x1 = x2; f1 = f2;
+      x2 = a + G * (b - a);
+      f2 = sdBox(ro + rd * x2, b0, b1.x, b1.y) / (slope * x2);
+    }
   }
-  res = clamp(res, 0.0, 1.0);
-  return res * res * (3.0 - 2.0 * res);
+  float res = clamp(min(f1, f2), -1.0, 1.0);
+  return 0.25 * (1.0 + res) * (1.0 + res) * (2.0 - res); // smoothstep over [-1, 1]
 }
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -116,6 +128,8 @@ void main() {
     int owner = int(lm.z);
     vec3 L;
     float tMax, att;
+    float size = max(lm.y, 1e-3);
+    float sinA; // sine of the light's angular radius seen from P
 
     // Lantern: light sits inside its owner box, below the owner's top.
     // The top is not lit directly; light leaks through the owner's material instead.
@@ -131,12 +145,14 @@ void main() {
       L = vec3(ls.xy * cos(el), sin(el));
       tMax = lp.w;
       att = 1.0;
+      sinA = size * inversesqrt(1.0 + size * size);
     } else {
       vec3 d = lp.xyz - P;
       float dist = length(d);
       if (dist >= lp.w) continue;
       L = d / dist;
       tMax = dist - 1.0;
+      sinA = min(size / dist, 1.0);
       float f = 1.0 - dist / lp.w;
       att = f * f;
       if (type == 1) {
@@ -146,18 +162,21 @@ void main() {
       }
     }
 
-    // Surface normal of every top (and the floor) is +z, so N·L = L.z.
-    // A light at or below the receiver's height cannot light it.
-    float ndl = L.z;
+    // Surface normal of every top (and the floor) is +z, so N·L = L.z for a point light.
+    // A sphere light sinks below a surface's horizon gradually: once its centre is within
+    // sinA of the horizon only part of it is visible (the usual sphere-light horizon fit).
+    // The 0.15 floor keeps grazing light readable for small lights.
+    float w = max(sinA, 0.15);
+    float ndl = L.z >= w ? L.z : (L.z + w) * (L.z + w) / (4.0 * w);
     if (ndl <= 0.0 || att <= 0.0) continue;
-    ndl = (ndl + 0.2) / 1.2; // slight wrap so grazing light still reads
 
     // Shadows: product of per-box transmissions (solid = 0, glass = tinted, paper = partial).
     vec3 T = vec3(1.0);
     vec3 end = P + L * tMax;
     vec2 lo = min(P.xy, end.xy), hi = max(P.xy, end.xy);
-    float k = lm.y;
-    float margin = 4.0 + tMax / k;
+    // Cone radius where it reaches the light: the sphere's radius, or for the sun its angular radius x tMax.
+    float rL = type == 2 ? size * tMax : size;
+    float margin = 4.0 + rL;
     for (int i = 0; i < uBoxCount; i++) {
       if (i == rid || i == owner) continue;
       vec4 b1 = B1(i);
@@ -165,7 +184,31 @@ void main() {
       vec4 b0 = B0(i);
       if (b0.x + b0.z + margin < lo.x || b0.x - b0.z - margin > hi.x ||
           b0.y + b0.w + margin < lo.y || b0.y - b0.w - margin > hi.y) continue;
-      float s = boxShadow(P, L, tMax, b0, b1, k);
+
+      vec3 Ld = L;
+      float tL = tMax, rE = rL;
+      if (type != 2) {
+        // The part of the sphere inside this box is hidden by it. Against this box, use the largest
+        // sphere inside the light that doesn't overlap it: pushed away along the box normal and
+        // shrunk to fit. Otherwise a box beside a big light "occludes" the half of the sphere it
+        // overlaps and throws a detached shadow onto the light's far side, while boxes behind
+        // the light's centre still get the full soft light.
+        float g = sdBox(lp.xyz, b0, b1.x, b1.y);
+        if (g < rL) {
+          const vec2 e = vec2(0.5, -0.5);
+          vec3 n = normalize(e.xyy * sdBox(lp.xyz + e.xyy, b0, b1.x, b1.y) +
+                             e.yyx * sdBox(lp.xyz + e.yyx, b0, b1.x, b1.y) +
+                             e.yxy * sdBox(lp.xyz + e.yxy, b0, b1.x, b1.y) +
+                             e.xxx * sdBox(lp.xyz + e.xxx, b0, b1.x, b1.y));
+          vec3 d = lp.xyz + n * (0.5 * (rL - g)) - P;
+          float dl = length(d);
+          Ld = d / dl;
+          tL = dl - 1.0;
+          rE = max(0.5 * (rL + g), 0.5);
+        }
+      }
+      if (tL <= 1.0) continue;
+      float s = boxShadow(P, Ld, tL, b0, b1, rE / tL);
       T *= mix(B2(i).rgb, vec3(1.0), s);
       if (max(T.r, max(T.g, T.b)) < 0.002) break;
     }

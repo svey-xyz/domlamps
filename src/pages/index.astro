@@ -16,7 +16,7 @@ const ring = [
 
 <Base title="Lumen" description="Top-down, game-style lighting for ordinary HTML: elements have height, cast shadows and emit light.">
   <header class="hero" id="top">
-    <Light class="ghost" z={380} radius={900} intensity={0.5} color="#91a8ff" bloom={0} soft={6} style="left:22%;top:18%" />
+    <Light class="ghost" z={380} radius={900} intensity={0.5} color="#91a8ff" bloom={0} size={60} style="left:22%;top:18%" />
 
     <div class="wrap hero-grid">
       <div class="copy">
@@ -45,8 +45,7 @@ const ring = [
           class="lumen-light orb"
           type="button"
           data-light="point"
-          data-soft="10"
-          style="left:46%;top:50%;--lz:140;--intensity:1.5;--radius:640;--light-color:#ffe3bd;--dir:0deg;--cone:60deg"
+          style="left:46%;top:50%;--lz:140;--intensity:1.5;--radius:640;--light-color:#ffe3bd;--dir:0deg;--cone:60deg;--size:14"
           aria-label="Light orb. Drag, or use arrow keys to move it and Page Up or Page Down to change its height."
         ></button>
       </div>
@@ -55,7 +54,7 @@ const ring = [
 
   <main>
     <section class="room materials" id="materials" aria-labelledby="materials-title">
-      <Light class="ghost" z={420} radius={900} intensity={0.42} color="#b9c6ff" bloom={0} soft={5} style="left:30%;top:45%" />
+      <Light class="ghost" z={420} radius={900} intensity={0.42} color="#b9c6ff" bloom={0} size={80} style="left:30%;top:45%" />
       <div class="wrap materials-grid">
         <div class="copy">
           <p class="eyebrow">Materials</p>
@@ -68,7 +67,7 @@ const ring = [
         </div>
         <div class="ring" aria-hidden="true">
           <Box z={50} class="obj stone post" style="left:50%;top:50%;width:40px;height:40px;border-radius:50%">
-            <Light type="spot" class="beam" z={22} radius={600} intensity={1.9} color="#e3f2ff" cone={50} soft={16} style="left:50%;top:50%" />
+            <Light type="spot" class="beam" z={22} radius={600} intensity={1.9} color="#e3f2ff" cone={50} size={6} style="left:50%;top:50%" />
           </Box>
           {ring.map((r) => (
             <Box
