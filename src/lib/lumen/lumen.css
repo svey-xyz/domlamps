@@ -1,0 +1,31 @@
+/* Registered so they interpolate: CSS transitions/animations drive the lighting. */
+@property --z { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --lz { syntax: '<number>'; inherits: false; initial-value: 80; }
+@property --intensity { syntax: '<number>'; inherits: false; initial-value: 1; }
+@property --radius { syntax: '<number>'; inherits: false; initial-value: 400; }
+@property --light-color { syntax: '<color>'; inherits: false; initial-value: white; }
+@property --dir { syntax: '<angle>'; inherits: false; initial-value: 90deg; }
+@property --cone { syntax: '<angle>'; inherits: false; initial-value: 50deg; }
+@property --elevation { syntax: '<angle>'; inherits: false; initial-value: 45deg; }
+
+.lumen-map,
+.lumen-bloom {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+  z-index: var(--lumen-layer, 50);
+}
+.lumen-map { mix-blend-mode: multiply; }
+.lumen-bloom { mix-blend-mode: screen; z-index: calc(var(--lumen-layer, 50) + 1); }
+
+/* A light's visible "bulb". Position it with left/top (or inside a positioned box). */
+.lumen-light {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: var(--light-color);
+  opacity: clamp(0, var(--intensity), 1);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--light-color), white 60%);
+}

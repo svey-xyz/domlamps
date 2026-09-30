@@ -1,0 +1,219 @@
+---
+import Base from '../layouts/Base.astro';
+import Box from '../components/Box.astro';
+import Light from '../components/Light.astro';
+import ReadMore from '../components/ReadMore.astro';
+import Inspector from '../components/Inspector.astro';
+
+const ring = [
+  { a: -90, material: 'solid', label: 'Solid', note: 'blocks all', cls: 'stone' },
+  { a: -18, material: 'glass', label: 'Glass', note: 'cyan tint', cls: 'glass', tint: '#2fd0e3' },
+  { a: 54, material: 'paper', label: 'Paper', note: '40% through', cls: 'paper' },
+  { a: 126, material: 'glass', label: 'Glass', note: 'magenta tint', cls: 'glass', tint: '#ff4fae' },
+  { a: 198, material: 'metal', label: 'Metal', note: 'blocks + shine', cls: 'metal' },
+] as const;
+---
+
+<Base title="Lumen" description="Top-down, game-style lighting for ordinary HTML: elements have height, cast shadows and emit light.">
+  <header class="hero" id="top">
+    <Light class="ghost" z={380} radius={900} intensity={0.5} color="#91a8ff" bloom={0} soft={6} style="left:22%;top:18%" />
+
+    <div class="wrap hero-grid">
+      <div class="copy">
+        <p class="eyebrow">Lumen · 2.5D lighting for the real DOM</p>
+        <h1>Light that knows how tall things are</h1>
+        <p class="lede">
+          Every block here is plain HTML with a height in pixels. The orb is a light 140px above the floor.
+          Anything taller than the light blocks it outright; anything shorter throws a shadow that shrinks as the light climbs.
+        </p>
+        <ul class="hints">
+          <li><span class="key">Drag</span> the orb, or focus it and use the arrow keys.</li>
+          <li><span class="key">PgUp / PgDn</span> raises and lowers it by 10px.</li>
+          <li>Lift it past <span class="mono">z 240</span> and the obelisk stops swallowing the room.</li>
+        </ul>
+      </div>
+
+      <div class="stage" id="stage">
+        <Box z={240} class="obj stone" style="left:66%;top:24%;width:72px;height:72px">obelisk<small>z 240</small></Box>
+        <Box z={90} class="obj stone" style="left:22%;top:64%;width:96px;height:96px;border-radius:12px">pillar<small>z 90</small></Box>
+        <Box z={40} material="metal" class="obj metal" style="left:30%;top:22%;width:84px;height:84px">disc<small>z 40</small></Box>
+        <Box z={30} material="glass" tint="#2fd0e3" class="obj glass" style="left:64%;top:74%;width:150px;height:92px">glass<small>z 30</small></Box>
+        <Box z={14} material="paper" class="obj paper" style="left:86%;top:50%;width:112px;height:140px">paper<small>z 14</small></Box>
+
+        <button
+          id="orb"
+          class="lumen-light orb"
+          type="button"
+          data-light="point"
+          data-soft="10"
+          style="left:46%;top:50%;--lz:140;--intensity:1.5;--radius:640;--light-color:#ffe3bd;--dir:0deg;--cone:60deg"
+          aria-label="Light orb. Drag, or use arrow keys to move it and Page Up or Page Down to change its height."
+        ></button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="room materials" id="materials" aria-labelledby="materials-title">
+      <Light class="ghost" z={420} radius={900} intensity={0.42} color="#b9c6ff" bloom={0} soft={5} style="left:30%;top:45%" />
+      <div class="wrap materials-grid">
+        <div class="copy">
+          <p class="eyebrow">Materials</p>
+          <h2 id="materials-title">Five blocks, one beam</h2>
+          <p>
+            All five blocks stand 60px tall; only the material changes. A spot light on the central post sweeps round
+            every 14 seconds. Solid stops it, paper lets some through, coloured glass passes a tinted share, and metal
+            blocks it but catches a highlight when the beam hits it.
+          </p>
+        </div>
+        <div class="ring" aria-hidden="true">
+          <Box z={50} class="obj stone post" style="left:50%;top:50%;width:40px;height:40px;border-radius:50%">
+            <Light type="spot" class="beam" z={22} radius={600} intensity={1.9} color="#e3f2ff" cone={50} soft={16} style="left:50%;top:50%" />
+          </Box>
+          {ring.map((r) => (
+            <Box
+              z={60}
+              material={r.material}
+              tint={'tint' in r ? r.tint : undefined}
+              class={`obj ${r.cls}`}
+              style={`--a:${r.a}deg;left:calc(50% + cos(var(--a)) * var(--r));top:calc(50% + sin(var(--a)) * var(--r));width:76px;height:76px`}
+            >
+              {r.label}<small>{r.note}</small>
+            </Box>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <section class="room reading" aria-label="Read-more demo">
+      <div class="wrap">
+        <ReadMore title="How top-down games fake a third dimension" eyebrow="Field notes">
+          <p>
+            A top-down game has no depth buffer to lean on, so its lighting is a trick played on a flat map. The oldest
+            version is a light map: a darkness layer drawn over the scene, with soft holes cut wherever a light reaches.
+            Multiply that layer over the art and the room falls away into shadow.
+          </p>
+          <p>
+            Holes alone make every light shine through walls. The fix is a visibility polygon: cast rays from the light
+            to each wall corner, keep the nearest hits, and fill the shape they enclose. Only the inside of that shape is
+            lit. Sorting the corners by angle makes it fast enough to rebuild every frame.
+          </p>
+          <p>
+            Height is what sells the effect. Give each wall and crate a height, and a short crate under a tall lamp throws
+            a short shadow while a tall wall throws a long one. When a lamp sits lower than a wall, it cannot light the
+            top of that wall at all. Light has to spill around the sides.
+          </p>
+          <p>
+            This page runs the same model on real HTML. Each element's box is a footprint, its <code>--z</code> is its
+            height, and one shader works out, for every pixel, which surface is on top and what stands between it and each
+            light. The text you are reading is still text: select it, zoom it, or read it with the lights off.
+          </p>
+        </ReadMore>
+      </div>
+    </section>
+  </main>
+
+  <Box as="footer" z={2} material="emissive" tint="#dfe4ec" data-glow="0.9" class="sign">
+    <div class="wrap sign-grid">
+      <p class="eyebrow">How it is built</p>
+      <p>
+        Astro renders static HTML. One ~6 kB script reads the boxes and lights, and a single WebGL2 shader draws a light
+        map multiplied over the page. Nothing is re-laid out, and scrolling costs nothing. This footer is an emissive box,
+        so it glows at full brightness.
+      </p>
+      <p class="mono"><a href="#top">Back to the orb ↑</a></p>
+    </div>
+  </Box>
+
+  <Inspector target="orb" />
+</Base>
+
+<style>
+  .hero { position: relative; padding-block: 40px 72px; }
+  .hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 32px; align-items: center; }
+  .copy { display: grid; gap: 20px; align-content: start; }
+  .lede { font-size: 1.1875rem; max-width: 36ch; }
+  .hints { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; color: var(--ink-soft); font-size: 0.9375rem; }
+  .key { font: 600 0.75rem/1 var(--mono); padding: 3px 6px; border: 1px solid var(--stone-edge); border-radius: 4px; color: var(--ink); }
+
+  .stage { position: relative; height: 560px; border: 1px dashed rgb(20 24 31 / 0.18); border-radius: 4px; }
+  .stage :global(.obj) { translate: -50% -50%; }
+
+  .orb {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 0;
+    cursor: grab;
+    touch-action: none;
+    z-index: 2;
+  }
+  .orb:active { cursor: grabbing; }
+
+  :global(.ghost) { opacity: 0 !important; }
+
+  .room { position: relative; padding-block: 96px; }
+  .materials-grid { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 6fr); gap: 32px; align-items: center; }
+  .materials .copy p:last-child { max-width: 44ch; }
+  .ring { --r: min(190px, 34vw); position: relative; height: 520px; }
+  .ring :global(.obj) { translate: -50% -50%; }
+  .ring :global(.post) { z-index: 1; }
+  .ring :global(.beam) { animation: sweep 14s linear infinite; }
+  @keyframes sweep { from { --dir: 0deg; } to { --dir: 360deg; } }
+
+  .reading { padding-block: 64px 128px; }
+
+  .sign { padding-block: 48px; background: #dfe4ec; border-top: 1px solid rgb(0 0 0 / 0.12); }
+  .sign-grid { display: grid; gap: 12px; max-width: 760px; }
+
+  @media (max-width: 860px) {
+    .hero-grid, .materials-grid { grid-template-columns: minmax(0, 1fr); }
+    .stage { height: 480px; }
+    .ring { height: 440px; }
+  }
+</style>
+
+<script>
+  // Dragging and keyboard control for the orb. Moving it only changes inline style;
+  // the engine's MutationObserver picks that up.
+  const orb = document.getElementById('orb')!;
+  const stage = document.getElementById('stage')!;
+
+  function place(x: number, y: number) {
+    const r = stage.getBoundingClientRect();
+    orb.style.left = `${Math.min(Math.max(x, 0), r.width)}px`;
+    orb.style.top = `${Math.min(Math.max(y, 0), r.height)}px`;
+    orb.dispatchEvent(new Event('lumen:moved'));
+  }
+
+  orb.addEventListener('pointerdown', (e) => {
+    orb.setPointerCapture(e.pointerId);
+    const move = (ev: PointerEvent) => {
+      const r = stage.getBoundingClientRect();
+      place(ev.clientX - r.left, ev.clientY - r.top);
+    };
+    const up = () => {
+      orb.removeEventListener('pointermove', move);
+      orb.removeEventListener('pointerup', up);
+      orb.removeEventListener('pointercancel', up);
+    };
+    orb.addEventListener('pointermove', move);
+    orb.addEventListener('pointerup', up);
+    orb.addEventListener('pointercancel', up);
+  });
+
+  orb.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 64 : 16;
+    const x = orb.offsetLeft, y = orb.offsetTop;
+    const lz = parseFloat(getComputedStyle(orb).getPropertyValue('--lz')) || 0;
+    const moves: Record<string, () => void> = {
+      ArrowLeft: () => place(x - step, y),
+      ArrowRight: () => place(x + step, y),
+      ArrowUp: () => place(x, y - step),
+      ArrowDown: () => place(x, y + step),
+      PageUp: () => { orb.style.setProperty('--lz', String(Math.min(400, lz + 10))); orb.dispatchEvent(new Event('lumen:moved')); },
+      PageDown: () => { orb.style.setProperty('--lz', String(Math.max(10, lz - 10))); orb.dispatchEvent(new Event('lumen:moved')); },
+    };
+    if (moves[e.key]) { e.preventDefault(); moves[e.key](); }
+  });
+</script>

@@ -1,0 +1,154 @@
+---
+/** Live controls for one light (by id) plus scene settings. Sits above the light map, so it is never darkened. */
+interface Props { target: string }
+const { target } = Astro.props;
+---
+
+<details class="inspector" open data-target={target}>
+  <summary>Light controls</summary>
+  <form class="grid" onsubmit="return false">
+    <fieldset>
+      <legend>Orb</legend>
+      <label for="ctl-type">Type</label>
+      <select id="ctl-type" data-attr="light">
+        <option value="point">Point</option>
+        <option value="spot">Spot</option>
+      </select>
+      <output></output>
+
+      <label for="ctl-lz">Height</label>
+      <input id="ctl-lz" type="range" min="10" max="400" step="1" data-var="--lz" data-unit="px" />
+      <output></output>
+
+      <label for="ctl-intensity">Intensity</label>
+      <input id="ctl-intensity" type="range" min="0" max="3" step="0.05" data-var="--intensity" />
+      <output></output>
+
+      <label for="ctl-radius">Reach</label>
+      <input id="ctl-radius" type="range" min="120" max="1400" step="10" data-var="--radius" data-unit="px" />
+      <output></output>
+
+      <label for="ctl-soft">Hardness</label>
+      <input id="ctl-soft" type="range" min="2" max="40" step="1" data-attr="soft" />
+      <output></output>
+
+      <label for="ctl-color">Colour</label>
+      <input id="ctl-color" type="color" data-var="--light-color" />
+      <output></output>
+
+      <label for="ctl-dir" class="spot-only">Aim</label>
+      <input id="ctl-dir" class="spot-only" type="range" min="0" max="359" step="1" data-var="--dir" data-unit="deg" />
+      <output class="spot-only"></output>
+
+      <label for="ctl-cone" class="spot-only">Cone</label>
+      <input id="ctl-cone" class="spot-only" type="range" min="10" max="140" step="1" data-var="--cone" data-unit="deg" />
+      <output class="spot-only"></output>
+    </fieldset>
+
+    <fieldset>
+      <legend>Scene</legend>
+      <label for="ctl-ambient">Ambient</label>
+      <input id="ctl-ambient" type="color" value="#1b1e26" />
+      <output></output>
+
+      <label for="ctl-scale">Light map</label>
+      <select id="ctl-scale">
+        <option value="0.25">¼ res</option>
+        <option value="0.5" selected>½ res</option>
+        <option value="1">Full res</option>
+      </select>
+      <output></output>
+
+      <label for="ctl-bypass">Plain DOM</label>
+      <input id="ctl-bypass" type="checkbox" />
+      <output></output>
+    </fieldset>
+  </form>
+</details>
+
+<style>
+  .inspector {
+    position: fixed;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    z-index: 80;
+    width: min(300px, calc(100vw - 32px));
+    background: var(--panel);
+    color: var(--panel-ink);
+    border: 1px solid #2a303a;
+    border-radius: 10px;
+    font: 400 0.8125rem/1.3 var(--body);
+    box-shadow: 0 12px 40px rgb(0 0 0 / 0.45);
+  }
+  summary {
+    padding: 12px 16px;
+    cursor: pointer;
+    font: 600 0.75rem/1 var(--mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .grid { display: grid; gap: 14px; padding: 0 16px 16px; }
+  fieldset {
+    display: grid;
+    grid-template-columns: 5.5em minmax(0, 1fr) 4.2em;
+    align-items: center;
+    gap: 8px 10px;
+    margin: 0;
+    padding: 12px 0 0;
+    border: 0;
+    border-top: 1px solid #262c35;
+  }
+  legend { font: 600 0.6875rem/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--panel-soft); padding: 0 0 4px; }
+  label { color: var(--panel-soft); }
+  output { font: 400 0.75rem/1 var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+  input[type='range'] { width: 100%; accent-color: var(--amber); }
+  input[type='color'] { width: 100%; height: 24px; padding: 0; border: 1px solid #39414d; border-radius: 4px; background: none; }
+  input[type='checkbox'] { justify-self: start; accent-color: var(--amber); width: 18px; height: 18px; }
+  select { width: 100%; font: inherit; color: inherit; background: #1a1f27; border: 1px solid #39414d; border-radius: 4px; padding: 3px 4px; }
+  .inspector:not(.is-spot) .spot-only { display: none; }
+</style>
+
+<script>
+  const panel = document.querySelector<HTMLDetailsElement>('.inspector')!;
+  const light = document.getElementById(panel.dataset.target!)!;
+  if (matchMedia('(max-width: 720px)').matches) panel.open = false;
+
+  const fmt = (v: string, unit = '') => (unit ? `${Math.round(Number(v))}${unit === 'deg' ? '°' : unit}` : v);
+  const out = (el: Element) => el.nextElementSibling as HTMLOutputElement;
+
+  function read() {
+    const cs = getComputedStyle(light);
+    for (const el of panel.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-var],[data-attr]')) {
+      const v = el.dataset.var
+        ? cs.getPropertyValue(el.dataset.var).trim()
+        : light.dataset[el.dataset.attr!] ?? '';
+      if (el.type === 'color') {
+        const [r, g, b] = (v.match(/\d+(\.\d+)?/g) ?? ['255', '255', '255']).map(Number);
+        el.value = '#' + [r, g, b].map((n) => Math.round(n).toString(16).padStart(2, '0')).join('');
+      } else el.value = String(parseFloat(v) || v);
+      out(el).value = el.type === 'color' ? el.value : fmt(el.value, el.dataset.unit);
+    }
+    panel.classList.toggle('is-spot', light.dataset.light === 'spot');
+  }
+
+  panel.addEventListener('input', (e) => {
+    const el = e.target as HTMLInputElement;
+    if (el.dataset.var) light.style.setProperty(el.dataset.var, el.value + (el.dataset.unit === 'deg' ? 'deg' : ''));
+    else if (el.dataset.attr) light.dataset[el.dataset.attr] = el.value;
+    else if (el.id === 'ctl-ambient') {
+      document.documentElement.style.setProperty('--lumen-ambient', el.value);
+      document.dispatchEvent(new Event('lumen:invalidate'));
+    } else if (el.id === 'ctl-scale') (window as any).lumen?.setScale(Number(el.value));
+    else if (el.id === 'ctl-bypass') document.documentElement.classList.toggle('lumen-bypass', el.checked);
+    if (el.type !== 'checkbox' && el.tagName !== 'SELECT') out(el).value = el.type === 'color' ? el.value : fmt(el.value, el.dataset.unit);
+    if (el.dataset.attr === 'light') read();
+  });
+
+  for (const id of ['ctl-ambient']) { const el = document.getElementById(id) as HTMLInputElement; out(el).value = el.value; }
+  light.addEventListener('lumen:moved', read);
+  read();
+</script>
+
+<style is:global>
+  .lumen-bypass .lumen-map, .lumen-bypass .lumen-bloom { display: none; }
+</style>
