@@ -1,0 +1,27 @@
+/*
+ * domlamps.css: optional. The engine registers these properties itself when it starts; importing
+ * this file registers them before any script runs (so early transitions interpolate) and styles
+ * light "bulbs". Keep in sync with src/properties.ts (a unit test checks it).
+ */
+@property --lamp-z { syntax: '<number>'; inherits: false; initial-value: 0; }
+@property --lamp-height { syntax: '<number>'; inherits: false; initial-value: 80; }
+@property --lamp-intensity { syntax: '<number>'; inherits: false; initial-value: 1; }
+@property --lamp-radius { syntax: '<number>'; inherits: false; initial-value: 400; }
+@property --lamp-color { syntax: '<color>'; inherits: false; initial-value: white; }
+@property --lamp-dir { syntax: '<angle>'; inherits: false; initial-value: 90deg; }
+@property --lamp-cone { syntax: '<angle>'; inherits: false; initial-value: 50deg; }
+@property --lamp-elevation { syntax: '<angle>'; inherits: false; initial-value: 45deg; }
+@property --lamp-size { syntax: '<number>'; inherits: false; initial-value: 12; }
+@property --lamp-spread { syntax: '<angle>'; inherits: false; initial-value: 2deg; }
+
+/* A light's visible bulb. Position it with left/top (or inside a positioned box). */
+.domlamps-light {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  translate: -50% -50%;
+  background: var(--lamp-color);
+  opacity: clamp(0, var(--lamp-intensity), 1);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--lamp-color), white 60%);
+}

@@ -1,19 +1,26 @@
 {
-  "name": "lumen",
-  "type": "module",
-  "version": "0.1.0",
+  "name": "domlamps-monorepo",
   "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "site"
+  ],
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "check": "astro check"
-  },
-  "dependencies": {
-    "astro": "^7.3.5"
+    "dev": "npm run dev -w site",
+    "build": "npm run build -w domlamps && npm run build -w site",
+    "build:lib": "npm run build -w domlamps",
+    "test": "npm test -w domlamps",
+    "test:browser": "npm run test:browser -w domlamps",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check": "npm run lint && npm run typecheck && npm test && npm run test:browser && npm run build && npm run lint:pkg -w domlamps"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.10",
-    "typescript": "^6.0.3"
+    "@biomejs/biome": "^2.5.15"
+  },
+  "engines": {
+    "node": ">=22.14"
   }
 }

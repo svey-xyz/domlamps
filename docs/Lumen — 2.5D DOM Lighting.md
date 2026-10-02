@@ -35,8 +35,7 @@ The scene is the page seen from directly above. Each tagged element is a block s
 | `--light-color` | any CSS colour | white |
 | `--dir`, `--cone` | spot aim and cone angle | 90deg, 50deg |
 | `--elevation` | sun angle above the horizon | 45deg |
-| `--size` | point/spot emitter radius, CSS px (bigger = softer light and shadows) | 12 |
-| `--spread` | sun angular radius (bigger = softer shadows) | 2deg |
+| `data-soft` | shadow hardness (higher is crisper) | 10 |
 | `data-flicker` | flicker amplitude, 0–1 | 0 |
 
 **Materials** (`data-material`) decide what a box does to light passing through it. `--tint` colours the transmitted light and `data-opacity` overrides how much is blocked.
@@ -54,7 +53,7 @@ The scene is the page seen from directly above. Each tagged element is a block s
 These come straight out of the geometry, with no special cases:
 
 1. **Light above a top lights it.** A top faces straight up, so its brightness is the vertical component of the direction to the light: (light z − top z) ÷ distance. A light directly overhead gives full brightness; a light off to the side gives grazing light.
-2. **Light at or below a top cannot light it.** That same term is zero or negative, so the top stays in ambient darkness. A large light sinks below the horizon gradually: while part of its sphere is still above the top, the top gets that part.
+2. **Light at or below a top cannot light it.** That same term is zero or negative, so the top stays in ambient darkness.
 3. **A block taller than the light blocks it completely.** Every ray from the far side has to pass through the block, so light only spills around its sides. This is the obelisk in the hero.
 4. **A block shorter than the light casts a finite shadow.** Its length follows similar triangles: a block of height h at distance d from a light at height L throws a shadow d × h ÷ (L − h) long. Raising the light shrinks it.
 5. **A light inside its own box becomes a lantern.** The owning box never blocks its own light, so light leaves through the sides. Its top shows only what leaks through the material, which is why the amber glass button glows.
@@ -68,17 +67,19 @@ One fullscreen triangle runs a fragment shader. For every pixel of the light map
 1. **Find the receiver.** Loop over the boxes and keep the tallest one whose footprint contains the pixel. That gives the surface height `hp` (0 for the floor).
 2. **Contact shadow.** Darken the pixel a little when it sits next to a taller box, scaled by the height difference. This ambient-occlusion term is what makes blocks look planted.
 3. **Light it.** For each light: distance falloff, spot cone, and the N·L term. Every top faces up, so N·L is simply the z of the direction to the light, which is where the height rules come from.
-4. **Shadow it.** For each box that could lie between the pixel and the light, find how much of the light (a sphere, not a point) that single box hides. The result is a soft visibility between 0 and 1, blended with the box's transmit colour: black for solid, tinted for glass. The per-box results multiply together.
+4. **Shadow it.** For each box that could lie between the pixel and the light, sphere-trace a ray against that single box's signed distance field. The result is a soft visibility between 0 and 1, blended with the box's transmit colour: black for solid, tinted for glass. The per-box results multiply together.
 
 ```glsl
 // Shadow from one box: 0 = blocked, 1 = clear, soft in between.
-// The rays from the pixel to the light's disc form a cone of radius slope * t.
-// sd / r < 0: the box covers the cone's axis; > 1: it misses the cone entirely.
-float boxShadow(vec3 ro, vec3 rd, float tMax, vec4 b0, vec4 b1, float slope) {
-  // sd (signed, rounded rect extruded to b1.x) is convex along the ray and r is linear,
-  // so sd / r has a single minimum: golden-section search, 20 evaluations, no step banding.
-  float res = clamp(minimise(sdBox(ro + rd * t, b0, b1.x, b1.y) / (slope * t), 1.0, tMax), -1.0, 1.0);
-  return 0.25 * (1.0 + res) * (1.0 + res) * (2.0 - res);  // smoothstep over [-1, 1]
+float boxShadow(vec3 ro, vec3 rd, float tMax, vec4 b0, vec4 b1, float k) {
+  float res = 1.0, t = 1.0;
+  for (int s = 0; s < 40 && t < tMax; s++) {
+    float h = sdBox(ro + rd * t, b0, b1.x, b1.y);  // rounded rect extruded to height b1.x
+    if (h < 0.05) return 0.0;
+    res = min(res, k * h / t);                      // near-misses far from the pixel = wide penumbra
+    t += max(h, 1.5);
+  }
+  return smoothstep(0.0, 1.0, res);
 }
 // per light:  T *= mix(transmitColour[i], vec3(1), boxShadow(...))
 ```
@@ -88,8 +89,7 @@ Tracing each box separately, instead of the whole scene as one distance field, i
 Some details that matter for the look:
 
 - **Linear light.** Colours are converted to linear RGB, summed, then encoded back to sRGB for the blend. Coloured lights mix correctly and falloff looks natural.
-- **Soft penumbrae** come from treating each light as a sphere of radius `--size` (sun: angular radius `--spread`). The penumbra straddles the hard shadow edge and follows real geometry: it is sharp where a block meets the floor, widens with distance from the block, and gets wider as the light gets bigger or closer. Both properties are registered, so softness can be animated.
-- **Big lights next to blocks.** The part of a light's sphere inside a box is hidden by it. So against each box the shader uses the largest sphere inside the light that doesn't overlap it. A big light pressed against a block still throws a wide soft shadow behind it, and never throws one on its own far side.
+- **Soft penumbrae** come from the `k · h / t` term. Shadows are sharp at the base of a block and widen with distance, like real contact hardening. `data-soft` sets k per light.
 - **Emissive boxes** output their own colour as a minimum, so a glowing sign is never darkened.
 - **Bloom.** Multiply can only darken, so light glows go on a second 2D canvas with `mix-blend-mode: screen`.
 - **Dithering.** One level of noise per pixel stops banding in dark gradients.
@@ -97,6 +97,49 @@ Some details that matter for the look:
 ## Project architecture
 
 The engine reads the DOM and never writes to it. Everything it knows comes from layout rects and computed styles, so any tool that produces HTML and CSS can drive it.
+
+The DOM stays the scene; Lumen only reads it and paints one layer on top
+
+**Markup + CSS**
+Box and Light components
+--z, --lz, --intensity, --tint
+@property makes them animate
+
+---
+
+Live DOM
+layout rects, with transforms
+computed custom properties
+native scroll, text, events
+
+---
+
+**Engine (engine.ts)**
+reads rects and styles on rAF
+packs box texture, light uniforms
+wakes on mutation, resize,
+transitions, band edge
+
+---
+
+**WebGL2 shader**
+per pixel: tallest box on top
+falloff and N·L per light
+soft shadow traced per box
+
+---
+
+**Two canvases**
+light map, blend multiply
+bloom, blend screen
+3× viewport band, half res
+
+---
+
+**What the visitor sees**
+page content × light map
+plus glow around lights
+still selectable, real HTML
 
 &#91;embedded content: data flow · markup to pixels\]
 
@@ -173,7 +216,7 @@ The engine renders only when something changed. A static page costs nothing afte
 | Box data in a float texture | Up to 128 boxes stay well inside WebGL2's minimum uniform budget. Lights (up to 8) use uniforms. |
 | CPU culling | Boxes more than 700px outside the band, and lights whose radius doesn't reach it, are never uploaded. |
 
-The cost that grows is lights × nearby boxes × 21 SDF evaluations, per pixel. As a working budget, keep 4 or fewer lights and about 30 boxes in view. The shader has not yet been profiled on low-end phones; that is the first thing to measure before using this on a client site.
+The cost that grows is lights × nearby boxes × trace steps, per pixel. As a working budget, keep 4 or fewer lights and about 30 boxes in view. The shader has not yet been profiled on low-end phones; that is the first thing to measure before using this on a client site.
 
 ## Limitations and next steps
 

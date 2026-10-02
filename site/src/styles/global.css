@@ -1,0 +1,72 @@
+/* Layout: a top-down floor plan. Sections are rooms laid on a 64px tile grid; objects are placed in px. */
+:root {
+  --floor: #c9ced4;
+  --floor-line: rgb(20 24 31 / 0.075);
+  --ink: #12151a;
+  --ink-soft: #39404a;
+  --stone: #a3a9b1;
+  --stone-edge: #7a818b;
+  --paper: #eef0f2;
+  --panel: #0f1217;
+  --panel-ink: #e4e8ee;
+  --panel-soft: #8e98a6;
+  --amber: #ffae3d;
+
+  --display: 'Big Shoulders Display', 'Arial Narrow', 'Roboto Condensed', sans-serif;
+  --body: 'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --tile: 64px;
+  --gutter: clamp(16px, 4vw, 48px);
+  color-scheme: light;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { background: var(--floor); }
+
+body {
+  margin: 0;
+  position: relative;
+  min-height: 100vh;
+  background-color: var(--floor);
+  background-image:
+    linear-gradient(var(--floor-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--floor-line) 1px, transparent 1px);
+  background-size: var(--tile) var(--tile);
+  color: var(--ink);
+  font: 400 1.0625rem/1.6 var(--body);
+  overflow-x: clip;
+}
+
+h1, h2, h3 { font-family: var(--display); font-weight: 800; line-height: 0.95; letter-spacing: 0.005em; text-wrap: balance; margin: 0; text-transform: uppercase; }
+h1 { font-size: clamp(3rem, 8vw, 6.25rem); }
+h2 { font-size: clamp(2.25rem, 5vw, 3.75rem); }
+p { margin: 0; text-wrap: pretty; }
+a { color: inherit; text-underline-offset: 3px; }
+code, .mono { font-family: var(--mono); font-size: 0.82em; }
+
+:focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+
+.wrap { width: min(1200px, 100%); margin-inline: auto; padding-inline: var(--gutter); }
+.eyebrow { font: 600 0.75rem/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
+
+/* ------- objects ------- */
+.obj {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font: 600 0.6875rem/1.25 var(--mono);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+.obj small { display: block; font-weight: 400; color: var(--ink-soft); }
+.obj.stone { background: var(--stone); border: 1px solid var(--stone-edge); border-radius: 6px; box-shadow: inset 0 0 0 4px rgb(255 255 255 / 0.12); }
+.obj.paper { background: var(--paper); border: 1px solid rgb(0 0 0 / 0.12); border-radius: 3px; }
+.obj.glass { background: color-mix(in oklab, var(--lamp-tint) 38%, transparent); border: 1px solid color-mix(in oklab, var(--lamp-tint) 70%, black); border-radius: 10px; backdrop-filter: blur(2px); }
+.obj.metal { background: radial-gradient(circle at 35% 30%, #eef1f4, #9aa2ac 55%, #6d757f); border: 1px solid #5d646d; border-radius: 50%; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: 0.01ms !important; }
+}

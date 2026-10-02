@@ -1,0 +1,52 @@
+# Publishes to this Gitea instance's npm registry and attaches the tarball to a Gitea release.
+# npmjs.com publishing (with provenance) happens on GitHub; see .github/workflows/release.yml.
+#
+# Needs a repository secret PACKAGES_TOKEN: an access token with write:package and write:repository.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint && npm run typecheck && npm test
+      - name: Check the tag matches the package version
+        run: |
+          version=$(node -p "require('./packages/domlamps/package.json').version")
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != package v$version"; exit 1; }
+      - name: Pack
+        run: npm pack -w domlamps --pack-destination .
+      - name: Publish to the Gitea npm registry
+        env:
+          TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          REGISTRY: ${{ github.server_url }}/api/packages/${{ github.repository_owner }}/npm/
+        run: |
+          host="${REGISTRY#https://}"
+          npm config set "//${host}:_authToken" "$TOKEN"
+          tag=latest
+          case "$GITHUB_REF_NAME" in *-*) tag=next ;; esac
+          npm publish domlamps-*.tgz --registry "$REGISTRY" --tag "$tag"
+      - name: Create Gitea release
+        env:
+          TOKEN: ${{ secrets.PACKAGES_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+        run: |
+          prerelease=false
+          case "$GITHUB_REF_NAME" in *-*) prerelease=true ;; esac
+          id=$(curl -fsS -X POST "$API/releases" \
+            -H "Authorization: token $TOKEN" -H 'Content-Type: application/json' \
+            -d "{\"tag_name\":\"$GITHUB_REF_NAME\",\"name\":\"$GITHUB_REF_NAME\",\"prerelease\":$prerelease,\"body\":\"See packages/domlamps/CHANGELOG.md\"}" \
+            | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).id')
+          for f in domlamps-*.tgz; do
+            curl -fsS -X POST "$API/releases/$id/assets?name=$f" \
+              -H "Authorization: token $TOKEN" -F "attachment=@$f"
+          done

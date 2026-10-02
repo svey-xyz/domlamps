@@ -1,0 +1,58 @@
+---
+title: Animation
+description: Animate lighting with CSS transitions and keyframes.
+---
+
+Every `--lamp-*` property is registered with `@property`, so CSS can interpolate it. Lighting animation is therefore just CSS: no animation API, no per-frame script.
+
+```css
+.lamp { --lamp-intensity: 0; transition: --lamp-intensity 0.9s ease-out; }
+.lamp.on { --lamp-intensity: 2; }
+
+.beam { animation: sweep 14s linear infinite; }
+@keyframes sweep { to { --lamp-dir: 360deg; } }
+```
+
+The engine listens for `transitionrun` and `animationstart` anywhere in the document, and keeps rendering while any element that started one still has running animations and is near the viewport. When everything settles, it stops.
+
+## Example: the lantern button
+
+From the [live demo](../../): a glass button that pops out of a page and lights a lantern inside itself. The script only flips `aria-expanded`.
+
+```html
+<article data-box data-material="paper" style="--lamp-z:6">
+  <button data-box data-material="glass" class="rm-btn" aria-expanded="false" style="--lamp-tint:#ffae3d">
+    <span data-light class="lantern" style="--lamp-height:-12; --lamp-radius:820; --lamp-color:#ffc47e"></span>
+    Light the lantern
+  </button>
+</article>
+```
+
+```css
+.rm-btn {
+  --lamp-z: 10;
+  transition: --lamp-z .75s var(--spring), translate .75s var(--spring), scale .75s var(--spring);
+}
+.rm-btn[aria-expanded='true'] { --lamp-z: 72; translate: 0 -22px; scale: 1.14; }
+
+.rm-btn .lantern { --lamp-intensity: 0; transition: --lamp-intensity .9s ease-out .18s; }
+.rm-btn[aria-expanded='true'] .lantern { --lamp-intensity: 2.3; }
+```
+
+1. The button's height animates from 10 to 72 with an overshooting curve, while `scale` and `translate` lift it visually. The engine renders every frame until the transition ends.
+2. 180 ms later the lantern fades up. It sits 12px below the button's top, so rule 5 applies: the button never shadows its own lantern, and its top glows amber through the glass.
+3. The paper below is 54px under the lantern, so the text is lit from the button outward.
+
+Because none of this is scripted, the same markup works with `@starting-style`, view transitions, or scroll-driven animations.
+
+## Flicker
+
+`data-flicker="0.3"` makes a light flicker like a candle (amplitude 0–1). Flickering lights keep the frame loop running only while they're near the viewport, and stop entirely under `prefers-reduced-motion: reduce`.
+
+## Things the engine can't see
+
+The engine observes attribute, class and style changes in the body, resizes, scrolling, font loading, and CSS transitions and animations. If something changes that it can't observe (a `requestAnimationFrame` loop writing to a canvas you've made a box, say), tell it:
+
+```js
+document.dispatchEvent(new Event('domlamps:invalidate'));
+```

@@ -1,0 +1,30 @@
+---
+/**
+ * A shadow-casting, light-receiving element with height.
+ * Renders any tag; everything inside stays normal DOM.
+ */
+import type { HTMLTag, Polymorphic } from 'astro/types';
+import type { MaterialName } from 'domlamps';
+
+type Props<Tag extends HTMLTag = 'div'> = Polymorphic<{ as: Tag }> & {
+  /** Height above the floor, CSS px. Animatable via `--lamp-z`. */
+  z?: number;
+  /** @default 'solid' */
+  material?: MaterialName;
+  /** Shadow / transmission tint (glass, paper) or glow colour (emissive). Any CSS colour. */
+  tint?: string;
+  /** Fraction of light blocked, 0–1. Defaults per material. */
+  opacity?: number;
+  /** Specular strength of the top surface, 0–1. Defaults per material. */
+  shine?: number;
+  /** Emissive glow strength. @default 1 */
+  glow?: number;
+};
+
+const { as: Tag = 'div', z, material = 'solid', tint, opacity, shine, glow, style, ...rest } = Astro.props;
+// Only emit what was passed, so CSS rules (and transitions) can own the rest.
+const vars =
+  [z !== undefined && `--lamp-z:${z}`, tint && `--lamp-tint:${tint}`, style].filter(Boolean).join(';') || undefined;
+---
+
+<Tag data-box data-material={material} data-opacity={opacity} data-shine={shine} data-glow={glow} style={vars} {...rest}><slot /></Tag>

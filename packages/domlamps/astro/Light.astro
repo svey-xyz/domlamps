@@ -1,0 +1,83 @@
+---
+/**
+ * A light source. Position it like any absolutely positioned element.
+ * Inside a <Box>, `z` is relative to that box's top (negative = inside it: a lantern).
+ */
+import type { HTMLAttributes } from 'astro/types';
+import type { LightType } from 'domlamps';
+
+interface Props extends Omit<HTMLAttributes<'span'>, 'dir'> {
+  /** @default 'point' */
+  type?: LightType;
+  /** Height, CSS px (relative to the owning box, if any). Sets `--lamp-height`. @default 80 */
+  z?: number;
+  /** Brightness multiplier. @default 1 */
+  intensity?: number;
+  /** Falloff distance, CSS px. @default 400 */
+  radius?: number;
+  /** Any CSS colour. @default 'white' */
+  color?: string;
+  /** Spot aim / sun travel direction, degrees (0 = right, 90 = down the page). @default 90 */
+  dir?: number;
+  /** Spot cone angle, degrees. @default 50 */
+  cone?: number;
+  /** Sun elevation, degrees. @default 45 */
+  elevation?: number;
+  /** Point/spot emitter radius, CSS px. Bigger = softer light and shadows. @default 12 */
+  size?: number;
+  /** Sun angular radius, degrees. Bigger = softer shadows. @default 2 */
+  spread?: number;
+  /** Flicker amplitude, 0–1. Paused under prefers-reduced-motion. */
+  flicker?: number;
+  /** Glow size multiplier; 0 disables the bloom. @default 1 (sun: 0) */
+  bloom?: number;
+  /** Sun only: maximum shadow length, CSS px. @default 1400 */
+  reach?: number;
+}
+
+const {
+  type = 'point',
+  z,
+  intensity,
+  radius,
+  color,
+  dir,
+  cone,
+  elevation,
+  size,
+  spread,
+  flicker,
+  bloom,
+  reach,
+  class: cls,
+  style,
+  ...rest
+} = Astro.props;
+
+// Only emit what was passed; @property initial values cover the rest and CSS can transition them.
+const vars =
+  [
+    z !== undefined && `--lamp-height:${z}`,
+    intensity !== undefined && `--lamp-intensity:${intensity}`,
+    radius !== undefined && `--lamp-radius:${radius}`,
+    color !== undefined && `--lamp-color:${color}`,
+    dir !== undefined && `--lamp-dir:${dir}deg`,
+    cone !== undefined && `--lamp-cone:${cone}deg`,
+    elevation !== undefined && `--lamp-elevation:${elevation}deg`,
+    size !== undefined && `--lamp-size:${size}`,
+    spread !== undefined && `--lamp-spread:${spread}deg`,
+    style,
+  ]
+    .filter(Boolean)
+    .join(';') || undefined;
+---
+
+<span
+  data-light={type}
+  data-flicker={flicker}
+  data-bloom={bloom}
+  data-reach={reach}
+  aria-hidden="true"
+  class:list={['domlamps-light', cls]}
+  style={vars}
+  {...rest}><slot /></span>

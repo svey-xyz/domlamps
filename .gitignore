@@ -1,3 +1,12 @@
-node_modules
-dist
-.astro
+node_modules/
+dist/
+.astro/
+coverage/
+*.tgz
+.DS_Store
+.vitest/
+__screenshots__/
+
+# Copied from the repo root at pack time
+packages/domlamps/README.md
+packages/domlamps/LICENSE

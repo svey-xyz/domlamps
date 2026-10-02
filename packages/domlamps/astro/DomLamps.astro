@@ -1,0 +1,23 @@
+---
+/**
+ * Mounts the lighting engine. Place it once per page (e.g. in your layout).
+ * Everything else is declared in markup with <Box> / <Light> or raw data attributes.
+ */
+import 'domlamps/domlamps.css';
+
+interface Props {
+  /** Light-map resolution, canvas px per CSS px (0.2–1). @default 0.5 */
+  scale?: number;
+  /** Ambient light colour (the "darkness"). Any CSS colour. Omit to set `--domlamps-ambient` in CSS. */
+  ambient?: string;
+  /** Canvas band height in viewports. @default 3 */
+  band?: number;
+}
+const { scale, ambient, band } = Astro.props;
+---
+
+<dom-lamps scale={scale} ambient={ambient} band={band}></dom-lamps>
+
+<script>
+  import 'domlamps/define';
+</script>

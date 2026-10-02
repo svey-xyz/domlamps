@@ -1,0 +1,83 @@
+{
+  "name": "domlamps",
+  "version": "0.1.0",
+  "description": "2.5D top-down lighting for ordinary HTML: elements have height, cast soft shadows and emit light. One WebGL2 shader, no framework.",
+  "keywords": [
+    "lighting",
+    "shadows",
+    "webgl2",
+    "dom",
+    "2.5d",
+    "shader",
+    "custom-element",
+    "astro",
+    "astro-component"
+  ],
+  "homepage": "https://svey-xyz.github.io/domlamps/",
+  "bugs": "https://github.com/svey-xyz/domlamps/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svey-xyz/domlamps.git",
+    "directory": "packages/domlamps"
+  },
+  "license": "MPL-2.0",
+  "author": "svey <x@svey.xyz>",
+  "type": "module",
+  "sideEffects": [
+    "./dist/define.js",
+    "./src/define.ts",
+    "*.css"
+  ],
+  "exports": {
+    ".": {
+      "lamps-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./define": {
+      "lamps-source": "./src/define.ts",
+      "types": "./dist/define.d.ts",
+      "default": "./dist/define.js"
+    },
+    "./domlamps.css": "./src/domlamps.css",
+    "./astro": "./astro/index.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "astro",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "test": "vitest run --project unit --project astro",
+    "test:browser": "vitest run --project browser",
+    "test:watch": "vitest --project unit --project astro",
+    "lint:pkg": "publint --strict && attw --pack . --profile esm-only --exclude-entrypoints ./astro ./domlamps.css",
+    "prepack": "cp ../../README.md ../../LICENSE . && npm run build"
+  },
+  "peerDependencies": {
+    "astro": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "astro": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "@types/node": "^24.19.1",
+    "@vitest/browser-playwright": "^5.0.3",
+    "astro": "^7.3.5",
+    "playwright": "^1.63.0",
+    "publint": "^0.3.25",
+    "tsdown": "^0.23.0",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.3"
+  }
+}
