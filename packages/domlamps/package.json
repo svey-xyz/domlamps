@@ -1,6 +1,6 @@
 {
   "name": "domlamps",
-  "version": "0.1.0-alpha",
+  "version": "0.1.1-alpha",
   "description": "2.5D top-down lighting for ordinary HTML: elements have height, cast soft shadows and emit light. One WebGL2 shader, no framework.",
   "keywords": [
     "lighting",
