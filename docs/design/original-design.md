@@ -1,3 +1,5 @@
+> **Historical.** These are the design notes for the original *Lumen* prototype, kept for context. Names have since changed (`--z` → `--lamp-z`, `--lz` → `--lamp-height`, `Lumen` → `DomLamps`, …). The current docs are in [`site/src/content/docs`](../../site/src/content/docs) and at https://svey-xyz.github.io/domlamps/.
+
 # Lumen — 2.5D DOM Lighting
 
 Sep 30, 2026 · @svey
