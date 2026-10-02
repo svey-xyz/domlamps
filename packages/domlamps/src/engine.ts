@@ -1,78 +1,127 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
+import { type Band, bandIsCurrent, computeBand, EMPTY_BAND } from './band';
+import { linearColor, linearToSrgb } from './color';
+import { clamp } from './parse';
+import { registerProperties } from './properties';
+import {
+  type BoxRecord,
+  boxNearBand,
+  createLightBuffers,
+  type ElementSample,
+  type LightBuffers,
+  type LightRecord,
+  lightReachesBand,
+  readBox,
+  readLight,
+  writeBox,
+  writeLight,
+} from './scene';
 import { FRAG, MAX_BOXES, MAX_LIGHTS, VERT } from './shader';
-import { linearColor, type RGB } from './color';
 
 /**
- * Lumen — 2.5D lighting for real DOM.
+ * domlamps: 2.5D lighting for real DOM.
  *
- * The DOM is the scene: [data-box] elements are extruded boxes of height --z,
- * [data-light] elements are lights. A WebGL2 fragment shader renders a light map
- * into a canvas that is multiplied over the page. Layout, scrolling, text,
- * selection and events all stay native.
+ * The DOM is the scene: `[data-box]` elements are extruded boxes of height `--lamp-z`, and
+ * `[data-light]` elements are lights. A WebGL2 fragment shader renders a light map into a canvas
+ * that is multiplied over the page. Layout, scrolling, text, selection and events all stay native.
  */
 
-export interface LumenOptions {
-  /** Light-map resolution in canvas px per CSS px (0.25–1). Light is low-frequency; 0.5 is plenty. */
+export interface DomLampsOptions {
+  /** Light-map resolution in canvas px per CSS px, 0.2–1. Light is low-frequency; 0.5 is plenty. @default 0.5 */
   scale?: number;
-  /** Canvas band height as a multiple of the viewport, so native scrolling needs no re-render. */
+  /** Canvas band height as a multiple of the viewport, so native scrolling needs no re-render. @default 3 */
   band?: number;
-  /** Where the canvases are inserted. */
+  /**
+   * Element the canvases are appended to. It must share the document's coordinate origin
+   * (the body, or an element positioned at the document's top left). @default document.body
+   */
   root?: HTMLElement;
+  /**
+   * Media query that switches the overlay off (the page renders fully lit). `false` never does.
+   * @default '(forced-colors: active), (prefers-contrast: more)'
+   */
+  disableWhen?: string | false;
+  /** Register the `--lamp-*` custom properties with `CSS.registerProperty`. @default true */
+  registerProperties?: boolean;
 }
 
-type MaterialName = 'solid' | 'glass' | 'paper' | 'emissive' | 'metal';
+export const DEFAULT_DISABLE_QUERY = '(forced-colors: active), (prefers-contrast: more)';
 
-const MATERIALS: Record<MaterialName, { id: number; opacity: number; shine: number; tint: RGB }> = {
-  solid: { id: 0, opacity: 1, shine: 0, tint: [1, 1, 1] },
-  glass: { id: 1, opacity: 0.3, shine: 0.35, tint: [1, 1, 1] },
-  paper: { id: 2, opacity: 0.6, shine: 0, tint: [1, 0.93, 0.8] },
-  emissive: { id: 3, opacity: 0, shine: 0, tint: [1, 1, 1] },
-  metal: { id: 4, opacity: 1, shine: 0.8, tint: [1, 1, 1] },
-};
+/** Event name: dispatch on `document` after changes the engine cannot observe. */
+export const INVALIDATE_EVENT = 'domlamps:invalidate';
 
-const LIGHT_TYPES = { point: 0, spot: 1, sun: 2 } as const;
-const DEG = Math.PI / 180;
+/** Boxes this far outside the band can still throw shadows into it. */
+const BOX_REACH = 700;
+/** Animated elements this far outside the viewport keep the frame loop running. */
+const ANIMATION_MARGIN = 600;
+/** Rows outside the viewport (CSS px) kept current while things move. */
+const SCISSOR_PAD = 80;
+/** After motion stops, refresh the rest of the band this many ms later. */
+const SETTLE_MS = 150;
 
-interface LightState {
-  el: HTMLElement;
-  x: number;
-  y: number;
-  color: RGB;
-  intensity: number;
-  radius: number;
-  bloom: number;
-}
+const OBSERVED_ATTRIBUTES = [
+  'style',
+  'class',
+  'hidden',
+  'open',
+  'data-box',
+  'data-light',
+  'data-material',
+  'data-opacity',
+  'data-shine',
+  'data-glow',
+  'data-flicker',
+  'data-bloom',
+  'data-reach',
+];
+const STRUCTURAL_ATTRIBUTES = new Set(['data-box', 'data-light']);
 
-const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const UNIFORMS = [
+  'uBoxes',
+  'uBoxCount',
+  'uLightCount',
+  'uLP',
+  'uLC',
+  'uLS',
+  'uLM',
+  'uAmbient',
+  'uRes',
+  'uScale',
+] as const;
 
-export class Lumen {
-  readonly canvas = document.createElement('canvas');
-  readonly bloomCanvas = document.createElement('canvas');
+export class DomLamps {
+  /** The light map, composited with `mix-blend-mode: multiply`. */
+  readonly canvas: HTMLCanvasElement;
+  /** Light glows, composited with `mix-blend-mode: screen`. */
+  readonly bloomCanvas: HTMLCanvasElement;
 
-  private gl: WebGL2RenderingContext | null;
-  private bloom: CanvasRenderingContext2D | null;
-  private program!: WebGLProgram;
-  private boxTex!: WebGLTexture;
-  private loc: Record<string, WebGLUniformLocation | null> = {};
+  private gl: WebGL2RenderingContext | null = null;
+  private bloom: CanvasRenderingContext2D | null = null;
+  private program: WebGLProgram | null = null;
+  private boxTex: WebGLTexture | null = null;
+  private loc = {} as Record<(typeof UNIFORMS)[number], WebGLUniformLocation | null>;
+  private maxTextureSize = 4096;
 
   private boxData = new Float32Array(MAX_BOXES * 4 * 3);
-  private lp = new Float32Array(MAX_LIGHTS * 4);
-  private lc = new Float32Array(MAX_LIGHTS * 4);
-  private ls = new Float32Array(MAX_LIGHTS * 4);
-  private lm = new Float32Array(MAX_LIGHTS * 4);
+  private lightBuf: LightBuffers = createLightBuffers(MAX_LIGHTS);
   private boxCount = 0;
   private lightCount = 0;
-  private lightStates: LightState[] = [];
+  private lightRecords: LightRecord[] = [];
 
   private boxes: HTMLElement[] = [];
   private lights: HTMLElement[] = [];
   private animating = new Set<Element>();
 
-  private scale: number;
-  private bandFactor: number;
-  private root: HTMLElement;
-  private width = 0;
-  private bandTop = 0;
-  private bandH = 0;
+  private _scale: number;
+  private readonly bandFactor: number;
+  private readonly root: HTMLElement;
+  private readonly disableQuery: MediaQueryList | null;
+  private readonly reducedMotion: MediaQueryList;
+  private readonly shouldRegister: boolean;
+  private band: Band = EMPTY_BAND;
 
   private raf = 0;
   private dirty = true;
@@ -80,155 +129,250 @@ export class Lumen {
   private staleOutside = false;
   private idleTimer = 0;
   private cleanup: (() => void)[] = [];
+  private state: 'idle' | 'running' | 'lost' | 'destroyed' = 'idle';
+  private userEnabled = true;
+  private warned = new Set<string>();
 
-  constructor(opts: LumenOptions = {}) {
-    this.scale = opts.scale ?? 0.5;
-    this.bandFactor = opts.band ?? 3;
-    this.root = opts.root ?? document.body;
-    this.gl = this.canvas.getContext('webgl2', { alpha: false, antialias: false, preserveDrawingBuffer: true, premultipliedAlpha: false });
-    this.bloom = this.bloomCanvas.getContext('2d');
+  constructor(options: DomLampsOptions = {}) {
+    this._scale = clamp(options.scale ?? 0.5, 0.2, 1);
+    this.bandFactor = Math.max(1, options.band ?? 3);
+    this.root = options.root ?? document.body;
+    this.shouldRegister = options.registerProperties ?? true;
+    const query = options.disableWhen ?? DEFAULT_DISABLE_QUERY;
+    this.disableQuery = query ? matchMedia(query) : null;
+    this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+    this.canvas = document.createElement('canvas');
+    this.bloomCanvas = document.createElement('canvas');
   }
 
-  /** Returns false (and leaves the page untouched, fully lit) when WebGL2 is unavailable. */
+  /** Light-map resolution, canvas px per CSS px. */
+  get scale(): number {
+    return this._scale;
+  }
+
+  /** True while the overlay is shown: started, not switched off by the user or by `disableWhen`. */
+  get active(): boolean {
+    return this.state === 'running' && this.userEnabled && !this.disableQuery?.matches;
+  }
+
+  /**
+   * Mounts the canvases and starts rendering. Returns false, leaving the page untouched and fully
+   * lit, when WebGL2 is unavailable or the shader fails to compile.
+   */
   start(): boolean {
-    if (!this.gl || !this.initGL()) return false;
-    this.canvas.className = 'lumen-map';
-    this.bloomCanvas.className = 'lumen-bloom';
-    this.canvas.setAttribute('aria-hidden', 'true');
-    this.bloomCanvas.setAttribute('aria-hidden', 'true');
+    if (this.state !== 'idle') return this.state === 'running';
+    this.gl = this.canvas.getContext('webgl2', {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      preserveDrawingBuffer: true,
+      premultipliedAlpha: false,
+    });
+    if (!this.gl || !this.initGL()) {
+      this.gl = null;
+      return false;
+    }
+    this.bloom = this.bloomCanvas.getContext('2d');
+    if (this.shouldRegister) registerProperties();
+
+    styleCanvas(this.canvas, 'domlamps-map', 'multiply', 0);
+    styleCanvas(this.bloomCanvas, 'domlamps-bloom', 'screen', 1);
     this.root.append(this.canvas, this.bloomCanvas);
-    document.documentElement.classList.add('lumen-on');
+    this.state = 'running';
 
     this.collect();
-    this.layoutBand(true);
     this.listen();
+    this.applyVisibility();
+    this.layoutBand(true);
     document.fonts?.ready.then(() => this.invalidate(true));
-    this.schedule();
     return true;
   }
 
-  destroy() {
+  /** Stops rendering, removes listeners and canvases, and releases the WebGL context. */
+  destroy(): void {
+    if (this.state === 'destroyed') return;
+    this.state = 'destroyed';
     cancelAnimationFrame(this.raf);
     clearTimeout(this.idleTimer);
-    this.cleanup.forEach((fn) => fn());
+    for (const fn of this.cleanup) fn();
+    this.cleanup = [];
+    this.animating.clear();
     this.canvas.remove();
     this.bloomCanvas.remove();
-    document.documentElement.classList.remove('lumen-on');
+    document.documentElement.classList.remove('domlamps-on');
+    this.gl?.getExtension('WEBGL_lose_context')?.loseContext();
+    this.gl = null;
   }
 
-  /** Request a re-render. `full` re-renders the whole band, not just the viewport. */
-  invalidate(full = false) {
+  /** Requests a re-render on the next frame. `full` re-renders the whole band, not just the viewport. */
+  invalidate(full = false): void {
     this.dirty = true;
     if (full) this.needFull = true;
     this.schedule();
   }
 
-  setScale(scale: number) {
-    this.scale = Math.min(1, Math.max(0.2, scale));
-    this.layoutBand(true);
+  /** Synchronously renders the whole band. Rarely needed: the engine renders on demand by itself. */
+  render(): void {
+    if (!this.active) return;
+    this.renderFrame(performance.now(), true);
+  }
+
+  /** Changes the light-map resolution (clamped to 0.2–1). */
+  setScale(scale: number): void {
+    this._scale = clamp(scale, 0.2, 1);
+    if (this.state === 'running') this.layoutBand(true);
+  }
+
+  /** Shows or hides the overlay without tearing the engine down (e.g. a "lights on" toggle). */
+  setEnabled(enabled: boolean): void {
+    this.userEnabled = enabled;
+    this.applyVisibility();
   }
 
   // ---------------------------------------------------------------- setup
 
   private initGL(): boolean {
-    const gl = this.gl!;
+    const gl = this.gl;
+    if (!gl) return false;
     const compile = (type: number, src: string) => {
-      const s = gl.createShader(type)!;
+      const s = gl.createShader(type);
+      if (!s) throw new Error('createShader failed');
       gl.shaderSource(s, src);
       gl.compileShader(s);
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? 'shader error');
       return s;
     };
     try {
-      const p = gl.createProgram()!;
+      const p = gl.createProgram();
       gl.attachShader(p, compile(gl.VERTEX_SHADER, VERT));
       gl.attachShader(p, compile(gl.FRAGMENT_SHADER, FRAG));
       gl.linkProgram(p);
       if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p) ?? 'link error');
       this.program = p;
     } catch (err) {
-      console.warn('[lumen] disabled:', err);
+      console.warn('[domlamps] disabled:', err);
       return false;
     }
     gl.useProgram(this.program);
-    for (const n of ['uBoxes', 'uBoxCount', 'uLightCount', 'uLP', 'uLC', 'uLS', 'uLM', 'uAmbient', 'uRes', 'uScale']) {
-      this.loc[n] = gl.getUniformLocation(this.program, n);
-    }
-    this.boxTex = gl.createTexture()!;
+    for (const n of UNIFORMS) this.loc[n] = gl.getUniformLocation(this.program, n);
+    this.boxTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.boxTex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, MAX_BOXES, 3, 0, gl.RGBA, gl.FLOAT, null);
     gl.uniform1i(this.loc.uBoxes, 0);
     gl.bindVertexArray(gl.createVertexArray());
+    this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     return true;
   }
 
-  private collect() {
+  private collect(): void {
     this.boxes = [...document.querySelectorAll<HTMLElement>('[data-box]')];
     this.lights = [...document.querySelectorAll<HTMLElement>('[data-light]')];
   }
 
-  private listen() {
-    const on = <K extends keyof DocumentEventMap>(target: EventTarget, type: K | string, fn: (e: any) => void, opts?: AddEventListenerOptions) => {
+  private listen(): void {
+    const on = (target: EventTarget, type: string, fn: (e: Event) => void, opts?: AddEventListenerOptions) => {
       target.addEventListener(type, fn, opts);
       this.cleanup.push(() => target.removeEventListener(type, fn, opts));
     };
 
-    // Transitions / animations anywhere may move or re-style boxes and lights: render while they run.
-    const start = (e: Event) => {
-      this.animating.add(e.target as Element);
+    // Transitions and animations anywhere may move or re-style boxes and lights: render while they run.
+    const animationStarted = (e: Event) => {
+      if (e.target instanceof Element) this.animating.add(e.target);
       this.schedule();
     };
-    on(document, 'transitionrun', start);
-    on(document, 'animationstart', start);
+    on(document, 'transitionrun', animationStarted);
+    on(document, 'animationstart', animationStarted);
 
     // Native scroll moves the canvas with the content, so scrolling is free until we near the band edge.
-    on(window, 'scroll', () => {
-      if (this.layoutBand(false) || this.staleOutside) this.invalidate(true);
-    }, { passive: true });
+    on(
+      window,
+      'scroll',
+      () => {
+        if (this.layoutBand(false) || this.staleOutside) this.invalidate(true);
+      },
+      { passive: true },
+    );
     on(window, 'resize', () => this.layoutBand(true));
-    on(document, 'lumen:invalidate', () => this.invalidate(true));
+    on(document, INVALIDATE_EVENT, () => this.invalidate(true));
+
+    on(this.canvas, 'webglcontextlost', (e) => {
+      e.preventDefault();
+      if (this.state !== 'running') return;
+      this.state = 'lost';
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    });
+    on(this.canvas, 'webglcontextrestored', () => {
+      if (this.state !== 'lost') return;
+      if (!this.initGL()) return this.destroy();
+      this.state = 'running';
+      this.invalidate(true);
+    });
+
+    const visibility = () => this.applyVisibility();
+    this.disableQuery?.addEventListener('change', visibility);
+    this.cleanup.push(() => this.disableQuery?.removeEventListener('change', visibility));
 
     const ro = new ResizeObserver(() => this.layoutBand(true));
     ro.observe(document.documentElement);
     this.cleanup.push(() => ro.disconnect());
 
+    const own = new Set<Node>([this.canvas, this.bloomCanvas]);
     const mo = new MutationObserver((records) => {
-      if (records.some((r) => r.type === 'childList' || r.attributeName?.startsWith('data-box') || r.attributeName === 'data-light')) this.collect();
-      this.invalidate();
+      let relevant = false;
+      let structural = false;
+      for (const r of records) {
+        if (own.has(r.target)) continue; // our own canvas styling
+        relevant = true;
+        if (r.type === 'childList' || STRUCTURAL_ATTRIBUTES.has(r.attributeName ?? '')) structural = true;
+      }
+      if (structural) this.collect();
+      if (relevant) this.invalidate();
     });
     mo.observe(document.body, {
       subtree: true,
       childList: true,
       attributes: true,
-      attributeFilter: ['style', 'class', 'hidden', 'open', 'data-box', 'data-light', 'data-material', 'data-opacity', 'data-shine'],
+      attributeFilter: OBSERVED_ATTRIBUTES,
     });
     this.cleanup.push(() => mo.disconnect());
   }
 
-  /** Size/position the canvas band around the viewport. Returns true if it moved. */
-  private layoutBand(force: boolean): boolean {
-    const gl = this.gl!;
-    const vh = innerHeight;
-    const docH = document.documentElement.scrollHeight;
-    const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-    const bandH = Math.min(docH, Math.round(vh * this.bandFactor), Math.floor(maxTex / this.scale));
-    const width = document.documentElement.clientWidth;
-    const y = scrollY;
-    const edge = vh * 0.5;
-    const inside = y >= this.bandTop + (this.bandTop > 0 ? edge : 0) - 1 && y + vh <= this.bandTop + this.bandH - (this.bandTop + this.bandH < docH ? edge : 0) + 1;
-    if (!force && inside && bandH === this.bandH && width === this.width) return false;
+  private applyVisibility(): void {
+    if (this.state === 'destroyed' || this.state === 'idle') return;
+    const on = this.active;
+    this.canvas.hidden = !on;
+    this.bloomCanvas.hidden = !on;
+    document.documentElement.classList.toggle('domlamps-on', on);
+    if (on) this.invalidate(true);
+  }
 
-    this.bandH = bandH;
-    this.width = width;
-    this.bandTop = Math.max(0, Math.min(docH - bandH, Math.round(y - (bandH - vh) / 2)));
-    const w = Math.max(1, Math.round(width * this.scale));
-    const h = Math.max(1, Math.round(bandH * this.scale));
+  /** Sizes and positions the canvas band around the viewport. Returns true if it moved. */
+  private layoutBand(force: boolean): boolean {
+    if (this.state !== 'running') return false;
+    const doc = document.documentElement;
+    const input = {
+      scrollY,
+      viewportHeight: innerHeight,
+      documentHeight: doc.scrollHeight,
+      documentWidth: doc.clientWidth,
+      factor: this.bandFactor,
+      scale: this._scale,
+      maxTextureSize: this.maxTextureSize,
+    };
+    if (!force && bandIsCurrent(this.band, input)) return false;
+
+    this.band = computeBand(input);
+    const { top, height, width } = this.band;
+    const w = Math.max(1, Math.min(this.maxTextureSize, Math.round(width * this._scale)));
+    const h = Math.max(1, Math.round(height * this._scale));
     for (const c of [this.canvas, this.bloomCanvas]) {
       if (c.width !== w) c.width = w;
       if (c.height !== h) c.height = h;
-      Object.assign(c.style, { top: `${this.bandTop}px`, width: `${width}px`, height: `${bandH}px` });
+      Object.assign(c.style, { top: `${top}px`, width: `${width}px`, height: `${height}px` });
     }
     this.invalidate(true);
     return true;
@@ -236,132 +380,109 @@ export class Lumen {
 
   // ---------------------------------------------------------------- frame loop
 
-  private schedule() {
-    if (!this.raf) this.raf = requestAnimationFrame(this.tick);
+  private schedule(): void {
+    if (!this.raf && this.active) this.raf = requestAnimationFrame(this.tick);
   }
 
-  private tick = (time: number) => {
+  private tick = (time: number): void => {
     this.raf = 0;
+    if (!this.active) return;
     const continuous = this.isContinuous();
-    if (this.needFull || this.dirty || continuous) {
-      const full = this.needFull;
-      this.sync(time);
-      this.draw(full);
-      this.drawBloom();
-      this.dirty = false;
-      this.needFull = false;
-      this.staleOutside = !full;
-    }
+    if (this.needFull || this.dirty || continuous) this.renderFrame(time, this.needFull);
     if (continuous) this.schedule();
     else if (this.staleOutside) {
       // Settle: once motion stops, refresh the off-screen parts of the band.
       clearTimeout(this.idleTimer);
-      this.idleTimer = window.setTimeout(() => this.invalidate(true), 150);
+      this.idleTimer = window.setTimeout(() => this.invalidate(true), SETTLE_MS);
     }
   };
 
+  private renderFrame(time: number, full: boolean): void {
+    this.sync(time);
+    this.draw(full);
+    this.drawBloom();
+    this.dirty = false;
+    this.needFull = false;
+    this.staleOutside = !full;
+  }
+
   private isContinuous(): boolean {
-    const margin = 600;
     const near = (el: Element) => {
       const r = el.getBoundingClientRect();
-      return r.bottom > -margin && r.top < innerHeight + margin;
+      return r.bottom > -ANIMATION_MARGIN && r.top < innerHeight + ANIMATION_MARGIN;
     };
     for (const el of this.animating) {
       if (!el.isConnected || !el.getAnimations().length) this.animating.delete(el);
     }
     for (const el of this.animating) if (near(el)) return true;
-    if (!reducedMotion()) for (const el of this.lights) if (el.dataset.flicker && near(el)) return true;
+    if (!this.reducedMotion.matches) for (const el of this.lights) if (el.dataset.flicker && near(el)) return true;
     return false;
   }
 
   // ---------------------------------------------------------------- DOM -> scene
 
-  private sync(time: number) {
-    const sx = scrollX;
-    const oy = scrollY - this.bandTop; // viewport y -> band y
-    const bandH = this.bandH;
-    const reach = 700; // boxes this far outside the band can still shadow into it
-    const d = this.boxData;
-    const owners = new Map<Element, number>();
+  private sample(el: HTMLElement): ElementSample {
+    return { rect: el.getBoundingClientRect(), style: getComputedStyle(el), dataset: el.dataset };
+  }
+
+  private sync(time: number): void {
+    const origin = { x: scrollX, y: scrollY - this.band.top }; // viewport -> band coordinates
+    const owners = new Map<Element, BoxRecord & { index: number }>();
     let n = 0;
-
     for (const el of this.boxes) {
-      if (n >= MAX_BOXES) break;
-      const r = el.getBoundingClientRect();
-      if (!r.width || !r.height) continue;
-      const cy = r.top + r.height / 2 + oy;
-      if (cy + r.height / 2 < -reach || cy - r.height / 2 > bandH + reach) continue;
-      const cs = getComputedStyle(el);
-      const mat = MATERIALS[(el.dataset.material as MaterialName) ?? 'solid'] ?? MATERIALS.solid;
-      const z = num(cs, '--z', 0);
-      const tint = linearColor(cs.getPropertyValue('--tint'), mat.tint);
-      const opacity = numAttr(el.dataset.opacity, mat.opacity);
-      const radius = cornerRadius(cs.borderTopLeftRadius, r.width, r.height);
-
-      d.set([r.left + r.width / 2 + sx, cy, r.width / 2, r.height / 2], n * 4);
-      d.set([z, radius, mat.id, numAttr(el.dataset.shine, mat.shine)], (MAX_BOXES + n) * 4);
-      const k = mat.id === MATERIALS.emissive.id ? numAttr(el.dataset.glow, 1) : 1 - opacity;
-      d.set([tint[0] * k, tint[1] * k, tint[2] * k, 0], (2 * MAX_BOXES + n) * 4);
-      owners.set(el, n);
+      if (n >= MAX_BOXES) {
+        this.warnOnce('boxes', `more than ${MAX_BOXES} boxes near the viewport; extra boxes are ignored`);
+        break;
+      }
+      const box = readBox(this.sample(el), origin, linearColor);
+      if (!box || !boxNearBand(box, this.band.height, BOX_REACH)) continue;
+      writeBox(this.boxData, n, MAX_BOXES, box);
+      owners.set(el, { ...box, index: n });
       n++;
     }
     this.boxCount = n;
 
-    const flickerOn = !reducedMotion();
     let m = 0;
-    this.lightStates = [];
+    this.lightRecords = [];
+    const flicker = !this.reducedMotion.matches;
     for (const el of this.lights) {
-      if (m >= MAX_LIGHTS) break;
-      const cs = getComputedStyle(el);
-      let intensity = num(cs, '--intensity', 1);
-      const flicker = numAttr(el.dataset.flicker, 0);
-      if (flicker && flickerOn) intensity *= 1 - flicker * noise(time / 1000 + m * 17.3);
-      if (intensity <= 0.001) continue;
-
-      const type = (el.dataset.light as keyof typeof LIGHT_TYPES) in LIGHT_TYPES ? (el.dataset.light as keyof typeof LIGHT_TYPES) : 'point';
-      const r = el.getBoundingClientRect();
-      const x = r.left + r.width / 2 + sx;
-      const y = r.top + r.height / 2 + oy;
-      const radius = num(cs, '--radius', 400);
-      if (type !== 'sun' && (y + radius < 0 || y - radius > bandH)) continue;
-
-      const ownerEl = el.parentElement?.closest<HTMLElement>('[data-box]') ?? null;
-      const ownerZ = ownerEl ? num(getComputedStyle(ownerEl), '--z', 0) : 0;
-      const z = ownerZ + num(cs, '--lz', 80);
-      const color = linearColor(cs.getPropertyValue('--light-color'));
-      const dir = num(cs, '--dir', 90) * DEG;
-      const cone = num(cs, '--cone', 50) * DEG;
-      // Emitter size: point/spot sphere radius in px; the sun's angular radius, sent as its tangent.
-      const size = type === 'sun' ? Math.tan(Math.min(num(cs, '--spread', 2), 45) * DEG) : Math.max(0, num(cs, '--size', 12));
-      const o = m * 4;
-
-      if (type === 'sun') {
-        // --dir is the direction light travels; the shader wants the direction toward the sun.
-        this.lp.set([x, y, z, numAttr(el.dataset.reach, 1400)], o);
-        this.ls.set([-Math.cos(dir), -Math.sin(dir), 0, 0], o);
-      } else {
-        this.lp.set([x, y, z, radius], o);
-        this.ls.set([Math.cos(dir), Math.sin(dir), Math.cos(cone / 2), Math.cos((cone / 2) * 0.6)], o);
+      if (m >= MAX_LIGHTS) {
+        this.warnOnce('lights', `more than ${MAX_LIGHTS} lights near the viewport; extra lights are ignored`);
+        break;
       }
-      this.lc.set([color[0], color[1], color[2], intensity], o);
-      this.lm.set([LIGHT_TYPES[type], size, ownerEl ? (owners.get(ownerEl) ?? -1) : -1, num(cs, '--elevation', 45) * DEG], o);
-      this.lightStates.push({ el, x, y, color, intensity, radius, bloom: numAttr(el.dataset.bloom, type === 'sun' ? 0 : 1) });
+      const ownerEl = el.parentElement?.closest<HTMLElement>('[data-box]');
+      const owner = ownerEl ? owners.get(ownerEl) : undefined;
+      const light = readLight(this.sample(el), {
+        origin,
+        owner: owner
+          ? { z: owner.z, index: owner.index }
+          : ownerEl
+            ? { z: Number.parseFloat(getComputedStyle(ownerEl).getPropertyValue('--lamp-z')) || 0, index: -1 }
+            : null,
+        time: time / 1000,
+        flicker,
+        seed: m,
+        color: linearColor,
+      });
+      if (!light || !lightReachesBand(light, this.band.height)) continue;
+      writeLight(this.lightBuf, m, light);
+      this.lightRecords.push(light);
       m++;
     }
     this.lightCount = m;
   }
 
-  private draw(full: boolean) {
-    const gl = this.gl!;
+  private draw(full: boolean): void {
+    const gl = this.gl;
+    if (!gl) return;
     const { width: w, height: h } = this.canvas;
     gl.viewport(0, 0, w, h);
 
     if (full) gl.disable(gl.SCISSOR_TEST);
     else {
       // Only the viewport (plus a margin) needs to be current while things move.
-      const pad = 80;
-      const y0 = Math.max(0, Math.floor((scrollY - this.bandTop - pad) * this.scale));
-      const y1 = Math.min(h, Math.ceil((scrollY + innerHeight - this.bandTop + pad) * this.scale));
+      const y0 = Math.max(0, Math.floor((scrollY - this.band.top - SCISSOR_PAD) * this._scale));
+      const y1 = Math.min(h, Math.ceil((scrollY + innerHeight - this.band.top + SCISSOR_PAD) * this._scale));
       gl.enable(gl.SCISSOR_TEST);
       gl.scissor(0, h - y1, w, Math.max(0, y1 - y0));
     }
@@ -370,62 +491,61 @@ export class Lumen {
     gl.bindTexture(gl.TEXTURE_2D, this.boxTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAX_BOXES, 3, gl.RGBA, gl.FLOAT, this.boxData);
 
-    const ambient = linearColor(getComputedStyle(document.documentElement).getPropertyValue('--lumen-ambient'), [0.02, 0.02, 0.03]);
+    const ambient = linearColor(
+      getComputedStyle(document.documentElement).getPropertyValue('--domlamps-ambient'),
+      [0.02, 0.02, 0.03],
+    );
     gl.uniform1i(this.loc.uBoxCount, this.boxCount);
     gl.uniform1i(this.loc.uLightCount, this.lightCount);
-    gl.uniform4fv(this.loc.uLP, this.lp);
-    gl.uniform4fv(this.loc.uLC, this.lc);
-    gl.uniform4fv(this.loc.uLS, this.ls);
-    gl.uniform4fv(this.loc.uLM, this.lm);
+    gl.uniform4fv(this.loc.uLP, this.lightBuf.position);
+    gl.uniform4fv(this.loc.uLC, this.lightBuf.color);
+    gl.uniform4fv(this.loc.uLS, this.lightBuf.shape);
+    gl.uniform4fv(this.loc.uLM, this.lightBuf.meta);
     gl.uniform3fv(this.loc.uAmbient, ambient);
     gl.uniform2f(this.loc.uRes, w, h);
-    gl.uniform1f(this.loc.uScale, this.scale);
+    gl.uniform1f(this.loc.uScale, this._scale);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
   /** Glow can only brighten, which multiply cannot do: a second canvas with mix-blend-mode: screen. */
-  private drawBloom() {
+  private drawBloom(): void {
     const ctx = this.bloom;
     if (!ctx) return;
-    const s = this.scale;
+    const s = this._scale;
     ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, this.bloomCanvas.width, this.bloomCanvas.height);
     ctx.globalCompositeOperation = 'lighter';
-    for (const l of this.lightStates) {
+    for (const l of this.lightRecords) {
       if (!l.bloom) continue;
       const size = (22 + 34 * Math.min(l.intensity, 2)) * l.bloom * s;
-      const [r, g, b] = l.color.map((c) => Math.round(Math.min(1, c) ** (1 / 2.2) * 255));
+      const [r, g, b] = l.color.map((c) => Math.round(linearToSrgb(c) * 255));
       const a = Math.min(0.85, 0.45 * l.intensity);
-      const grad = ctx.createRadialGradient(l.x * s, l.y * s, 0, l.x * s, l.y * s, size);
+      const x = l.x * s;
+      const y = l.y * s;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, size);
       grad.addColorStop(0, `rgb(${r} ${g} ${b} / ${a})`);
       grad.addColorStop(0.35, `rgb(${r} ${g} ${b} / ${a * 0.35})`);
       grad.addColorStop(1, `rgb(${r} ${g} ${b} / 0)`);
       ctx.fillStyle = grad;
-      ctx.fillRect(l.x * s - size, l.y * s - size, size * 2, size * 2);
+      ctx.fillRect(x - size, y - size, size * 2, size * 2);
     }
+  }
+
+  private warnOnce(key: string, message: string): void {
+    if (this.warned.has(key)) return;
+    this.warned.add(key);
+    console.warn(`[domlamps] ${message}`);
   }
 }
 
-// ---------------------------------------------------------------- helpers
-
-function num(cs: CSSStyleDeclaration, prop: string, fallback: number) {
-  const v = parseFloat(cs.getPropertyValue(prop));
-  return Number.isFinite(v) ? v : fallback;
-}
-
-function numAttr(v: string | undefined, fallback: number) {
-  const n = v === undefined || v === '' ? NaN : parseFloat(v);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function cornerRadius(value: string, w: number, h: number) {
-  const v = parseFloat(value) || 0;
-  const px = value.trim().endsWith('%') ? (v / 100) * Math.min(w, h) : v;
-  return Math.min(px, w / 2, h / 2);
-}
-
-/** Smooth 0–1 value noise from a few incommensurate sines (candle flicker). */
-function noise(t: number) {
-  const v = Math.sin(t * 7.3) * 0.5 + Math.sin(t * 13.1 + 1.7) * 0.3 + Math.sin(t * 29.7 + 4.1) * 0.2;
-  return (v + 1) / 2;
+function styleCanvas(c: HTMLCanvasElement, className: string, blend: string, layerOffset: number): void {
+  c.className = className;
+  c.setAttribute('aria-hidden', 'true');
+  Object.assign(c.style, {
+    position: 'absolute',
+    left: '0',
+    pointerEvents: 'none',
+    mixBlendMode: blend,
+    zIndex: `calc(var(--domlamps-layer, 50) + ${layerOffset})`,
+  });
 }

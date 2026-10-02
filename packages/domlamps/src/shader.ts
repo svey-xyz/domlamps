@@ -1,10 +1,14 @@
+// This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+// If a copy of the MPL was not distributed with this file, You can obtain one at
+// https://mozilla.org/MPL/2.0/.
+
 /**
  * Light-map shader. One fullscreen triangle; every fragment is a point on the
  * top-down "floor" of the page, in CSS pixels relative to the canvas band.
  *
  * Scene model
  *  - Boxes: axis-aligned rounded rects extruded from z = 0 to z = h (a DOM element with data-box).
- *  - Lights: point / spot / sun with a 3D position (x, y from layout, z from CSS --z / --lz).
+ *  - Lights: point / spot / sun with a 3D position (x, y from layout, z from CSS --lamp-z / --lamp-height).
  *
  * Output is a multiplier in sRGB: 1 = content untouched, 0 = black. The canvas is
  * composited over the page with mix-blend-mode: multiply.
@@ -167,7 +171,8 @@ void main() {
     // sinA of the horizon only part of it is visible (the usual sphere-light horizon fit).
     // The 0.15 floor keeps grazing light readable for small lights.
     float w = max(sinA, 0.15);
-    float ndl = L.z >= w ? L.z : (L.z + w) * (L.z + w) / (4.0 * w);
+    // Fully below the horizon (L.z <= -w) contributes nothing; without that clamp the square would rise again.
+    float ndl = L.z >= w ? L.z : L.z <= -w ? 0.0 : (L.z + w) * (L.z + w) / (4.0 * w);
     if (ndl <= 0.0 || att <= 0.0) continue;
 
     // Shadows: product of per-box transmissions (solid = 0, glass = tinted, paper = partial).
