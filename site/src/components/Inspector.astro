@@ -1,6 +1,8 @@
 ---
 /** Live controls for one light (by id) plus scene settings. Sits above the light map, so it is never darkened. */
-interface Props { target: string }
+interface Props {
+  target: string;
+}
 const { target } = Astro.props;
 ---
 
@@ -17,31 +19,31 @@ const { target } = Astro.props;
       <output></output>
 
       <label for="ctl-lz">Height</label>
-      <input id="ctl-lz" type="range" min="10" max="400" step="1" data-var="--lz" data-unit="px" />
+      <input id="ctl-lz" type="range" min="10" max="400" step="1" data-var="--lamp-height" data-unit="px" />
       <output></output>
 
       <label for="ctl-intensity">Intensity</label>
-      <input id="ctl-intensity" type="range" min="0" max="3" step="0.05" data-var="--intensity" />
+      <input id="ctl-intensity" type="range" min="0" max="3" step="0.05" data-var="--lamp-intensity" />
       <output></output>
 
       <label for="ctl-radius">Reach</label>
-      <input id="ctl-radius" type="range" min="120" max="1400" step="10" data-var="--radius" data-unit="px" />
+      <input id="ctl-radius" type="range" min="120" max="1400" step="10" data-var="--lamp-radius" data-unit="px" />
       <output></output>
 
       <label for="ctl-size">Size</label>
-      <input id="ctl-size" type="range" min="0" max="240" step="1" data-var="--size" data-unit="px" />
+      <input id="ctl-size" type="range" min="0" max="240" step="1" data-var="--lamp-size" data-unit="px" />
       <output></output>
 
       <label for="ctl-color">Colour</label>
-      <input id="ctl-color" type="color" data-var="--light-color" />
+      <input id="ctl-color" type="color" data-var="--lamp-color" />
       <output></output>
 
       <label for="ctl-dir" class="spot-only">Aim</label>
-      <input id="ctl-dir" class="spot-only" type="range" min="0" max="359" step="1" data-var="--dir" data-unit="deg" />
+      <input id="ctl-dir" class="spot-only" type="range" min="0" max="359" step="1" data-var="--lamp-dir" data-unit="deg" />
       <output class="spot-only"></output>
 
       <label for="ctl-cone" class="spot-only">Cone</label>
-      <input id="ctl-cone" class="spot-only" type="range" min="10" max="140" step="1" data-var="--cone" data-unit="deg" />
+      <input id="ctl-cone" class="spot-only" type="range" min="10" max="140" step="1" data-var="--lamp-cone" data-unit="deg" />
       <output class="spot-only"></output>
     </fieldset>
 
@@ -113,6 +115,7 @@ const { target } = Astro.props;
   const light = document.getElementById(panel.dataset.target!)!;
   if (matchMedia('(max-width: 720px)').matches) panel.open = false;
 
+  const engine = () => document.querySelector('dom-lamps')?.engine;
   const fmt = (v: string, unit = '') => (unit ? `${Math.round(Number(v))}${unit === 'deg' ? '°' : unit}` : v);
   const out = (el: Element) => el.nextElementSibling as HTMLOutputElement;
 
@@ -136,19 +139,16 @@ const { target } = Astro.props;
     if (el.dataset.var) light.style.setProperty(el.dataset.var, el.value + (el.dataset.unit === 'deg' ? 'deg' : ''));
     else if (el.dataset.attr) light.dataset[el.dataset.attr] = el.value;
     else if (el.id === 'ctl-ambient') {
-      document.documentElement.style.setProperty('--lumen-ambient', el.value);
-      document.dispatchEvent(new Event('lumen:invalidate'));
-    } else if (el.id === 'ctl-scale') (window as any).lumen?.setScale(Number(el.value));
-    else if (el.id === 'ctl-bypass') document.documentElement.classList.toggle('lumen-bypass', el.checked);
+      document.documentElement.style.setProperty('--domlamps-ambient', el.value);
+      document.dispatchEvent(new Event('domlamps:invalidate'));
+    } else if (el.id === 'ctl-scale') engine()?.setScale(Number(el.value));
+    else if (el.id === 'ctl-bypass') engine()?.setEnabled(!el.checked);
     if (el.type !== 'checkbox' && el.tagName !== 'SELECT') out(el).value = el.type === 'color' ? el.value : fmt(el.value, el.dataset.unit);
     if (el.dataset.attr === 'light') read();
   });
 
   for (const id of ['ctl-ambient']) { const el = document.getElementById(id) as HTMLInputElement; out(el).value = el.value; }
-  light.addEventListener('lumen:moved', read);
+  light.addEventListener('orb:moved', read);
   read();
 </script>
 
-<style is:global>
-  .lumen-bypass .lumen-map, .lumen-bypass .lumen-bloom { display: none; }
-</style>

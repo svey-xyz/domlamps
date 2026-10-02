@@ -1,13 +1,16 @@
 ---
 /**
  * An article that starts mostly in darkness. The button is an amber glass box
- * with a lantern inside; opening it raises the box (--z 10 → 72) and lights
+ * with a lantern inside; opening it raises the box (--lamp-z 10 → 72) and lights
  * the lantern, which spills light across the text.
  */
-import Box from './Box.astro';
-import Light from './Light.astro';
+import { Box, Light } from 'domlamps/astro';
 
-interface Props { title: string; eyebrow?: string; id?: string }
+interface Props {
+  title: string;
+  eyebrow?: string;
+  id?: string;
+}
 const { title, eyebrow, id = 'read-more' } = Astro.props;
 ---
 
@@ -45,7 +48,7 @@ const { title, eyebrow, id = 'read-more' } = Astro.props;
   .rm-body :global(p) { max-width: 62ch; }
 
   .rm-btn {
-    --z: 10;
+    --lamp-z: 10;
     position: absolute;
     left: 50%;
     bottom: 40px;
@@ -60,27 +63,27 @@ const { title, eyebrow, id = 'read-more' } = Astro.props;
     border-radius: 999px;
     cursor: pointer;
     transition:
-      --z 0.75s cubic-bezier(0.3, 1.45, 0.5, 1),
+      --lamp-z 0.75s cubic-bezier(0.3, 1.45, 0.5, 1),
       translate 0.75s cubic-bezier(0.3, 1.45, 0.5, 1),
       scale 0.75s cubic-bezier(0.3, 1.45, 0.5, 1);
   }
   .rm-btn:hover { scale: 1.03; }
   .rm-btn[aria-expanded='true'] {
-    --z: 72;
+    --lamp-z: 72;
     translate: -50% -22px;
     scale: 1.14;
   }
 
   /* The lantern sits inside the glass, below its top: it lights the page around the box, not the box's own top. */
   .rm-btn :global(.lantern) {
-    --intensity: 0;
+    --lamp-intensity: 0;
     left: 50%;
     top: 50%;
     width: 14px;
     height: 14px;
-    transition: --intensity 0.9s ease-out 0.18s;
+    transition: --lamp-intensity 0.9s ease-out 0.18s;
   }
-  .rm-btn[aria-expanded='true'] :global(.lantern) { --intensity: 2.3; }
+  .rm-btn[aria-expanded='true'] :global(.lantern) { --lamp-intensity: 2.3; }
 
   .rm-label { position: relative; z-index: 1; }
   :global(.candle) { width: 7px; height: 7px; }

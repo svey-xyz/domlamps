@@ -1,9 +1,10 @@
 ---
-import Base from '../layouts/Base.astro';
-import Box from '../components/Box.astro';
-import Light from '../components/Light.astro';
-import ReadMore from '../components/ReadMore.astro';
+import { Box, Light } from 'domlamps/astro';
 import Inspector from '../components/Inspector.astro';
+import ReadMore from '../components/ReadMore.astro';
+import Base from '../layouts/Base.astro';
+
+const docs = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/guides/getting-started/`;
 
 const ring = [
   { a: -90, material: 'solid', label: 'Solid', note: 'blocks all', cls: 'stone' },
@@ -14,18 +15,19 @@ const ring = [
 ] as const;
 ---
 
-<Base title="Lumen" description="Top-down, game-style lighting for ordinary HTML: elements have height, cast shadows and emit light.">
+<Base title="domlamps" description="Top-down, game-style lighting for ordinary HTML: elements have height, cast shadows and emit light.">
   <header class="hero" id="top">
     <Light class="ghost" z={380} radius={900} intensity={0.5} color="#91a8ff" bloom={0} size={60} style="left:22%;top:18%" />
 
     <div class="wrap hero-grid">
       <div class="copy">
-        <p class="eyebrow">Lumen · 2.5D lighting for the real DOM</p>
+        <p class="eyebrow">domlamps · 2.5D lighting for the real DOM</p>
         <h1>Light that knows how tall things are</h1>
         <p class="lede">
           Every block here is plain HTML with a height in pixels. The orb is a light 140px above the floor.
           Anything taller than the light blocks it outright; anything shorter throws a shadow that shrinks as the light climbs.
         </p>
+        <p class="mono"><a href={docs}>Docs</a> · <code>npm i domlamps</code></p>
         <ul class="hints">
           <li><span class="key">Drag</span> the orb, or focus it and use the arrow keys.</li>
           <li><span class="key">PgUp / PgDn</span> raises and lowers it by 10px.</li>
@@ -42,10 +44,10 @@ const ring = [
 
         <button
           id="orb"
-          class="lumen-light orb"
+          class="domlamps-light orb"
           type="button"
           data-light="point"
-          style="left:46%;top:50%;--lz:140;--intensity:1.5;--radius:640;--light-color:#ffe3bd;--dir:0deg;--cone:60deg;--size:14"
+          style="left:46%;top:50%;--lamp-height:140;--lamp-intensity:1.5;--lamp-radius:640;--lamp-color:#ffe3bd;--lamp-dir:0deg;--lamp-cone:60deg;--lamp-size:14"
           aria-label="Light orb. Drag, or use arrow keys to move it and Page Up or Page Down to change its height."
         ></button>
       </div>
@@ -103,7 +105,7 @@ const ring = [
             top of that wall at all. Light has to spill around the sides.
           </p>
           <p>
-            This page runs the same model on real HTML. Each element's box is a footprint, its <code>--z</code> is its
+            This page runs the same model on real HTML. Each element's box is a footprint, its <code>--lamp-z</code> is its
             height, and one shader works out, for every pixel, which surface is on top and what stands between it and each
             light. The text you are reading is still text: select it, zoom it, or read it with the lights off.
           </p>
@@ -116,11 +118,11 @@ const ring = [
     <div class="wrap sign-grid">
       <p class="eyebrow">How it is built</p>
       <p>
-        Astro renders static HTML. One ~6 kB script reads the boxes and lights, and a single WebGL2 shader draws a light
+        Astro renders static HTML. One small script reads the boxes and lights, and a single WebGL2 shader draws a light
         map multiplied over the page. Nothing is re-laid out, and scrolling costs nothing. This footer is an emissive box,
         so it glows at full brightness.
       </p>
-      <p class="mono"><a href="#top">Back to the orb ↑</a></p>
+      <p class="mono"><a href={docs}>Read the docs →</a> · <a href="https://www.npmjs.com/package/domlamps">npm</a> · <a href="#top">Back to the orb ↑</a></p>
     </div>
   </Box>
 
@@ -158,7 +160,7 @@ const ring = [
   .ring :global(.obj) { translate: -50% -50%; }
   .ring :global(.post) { z-index: 1; }
   .ring :global(.beam) { animation: sweep 14s linear infinite; }
-  @keyframes sweep { from { --dir: 0deg; } to { --dir: 360deg; } }
+  @keyframes sweep { from { --lamp-dir: 0deg; } to { --lamp-dir: 360deg; } }
 
   .reading { padding-block: 64px 128px; }
 
@@ -182,7 +184,7 @@ const ring = [
     const r = stage.getBoundingClientRect();
     orb.style.left = `${Math.min(Math.max(x, 0), r.width)}px`;
     orb.style.top = `${Math.min(Math.max(y, 0), r.height)}px`;
-    orb.dispatchEvent(new Event('lumen:moved'));
+    orb.dispatchEvent(new Event('orb:moved'));
   }
 
   orb.addEventListener('pointerdown', (e) => {
@@ -204,14 +206,14 @@ const ring = [
   orb.addEventListener('keydown', (e) => {
     const step = e.shiftKey ? 64 : 16;
     const x = orb.offsetLeft, y = orb.offsetTop;
-    const lz = parseFloat(getComputedStyle(orb).getPropertyValue('--lz')) || 0;
+    const lz = parseFloat(getComputedStyle(orb).getPropertyValue('--lamp-height')) || 0;
     const moves: Record<string, () => void> = {
       ArrowLeft: () => place(x - step, y),
       ArrowRight: () => place(x + step, y),
       ArrowUp: () => place(x, y - step),
       ArrowDown: () => place(x, y + step),
-      PageUp: () => { orb.style.setProperty('--lz', String(Math.min(400, lz + 10))); orb.dispatchEvent(new Event('lumen:moved')); },
-      PageDown: () => { orb.style.setProperty('--lz', String(Math.max(10, lz - 10))); orb.dispatchEvent(new Event('lumen:moved')); },
+      PageUp: () => { orb.style.setProperty('--lamp-height', String(Math.min(400, lz + 10))); orb.dispatchEvent(new Event('orb:moved')); },
+      PageDown: () => { orb.style.setProperty('--lamp-height', String(Math.max(10, lz - 10))); orb.dispatchEvent(new Event('orb:moved')); },
     };
     if (moves[e.key]) { e.preventDefault(); moves[e.key](); }
   });

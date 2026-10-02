@@ -64,7 +64,7 @@ code, .mono { font-family: var(--mono); font-size: 0.82em; }
 .obj small { display: block; font-weight: 400; color: var(--ink-soft); }
 .obj.stone { background: var(--stone); border: 1px solid var(--stone-edge); border-radius: 6px; box-shadow: inset 0 0 0 4px rgb(255 255 255 / 0.12); }
 .obj.paper { background: var(--paper); border: 1px solid rgb(0 0 0 / 0.12); border-radius: 3px; }
-.obj.glass { background: color-mix(in oklab, var(--tint) 38%, transparent); border: 1px solid color-mix(in oklab, var(--tint) 70%, black); border-radius: 10px; backdrop-filter: blur(2px); }
+.obj.glass { background: color-mix(in oklab, var(--lamp-tint) 38%, transparent); border: 1px solid color-mix(in oklab, var(--lamp-tint) 70%, black); border-radius: 10px; backdrop-filter: blur(2px); }
 .obj.metal { background: radial-gradient(circle at 35% 30%, #eef1f4, #9aa2ac 55%, #6d757f); border: 1px solid #5d646d; border-radius: 50%; }
 
 @media (prefers-reduced-motion: reduce) {

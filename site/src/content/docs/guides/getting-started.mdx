@@ -1,0 +1,86 @@
+---
+title: Getting started
+description: Install domlamps and light your first page.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+domlamps gives ordinary HTML the lighting of a top-down game. Elements get a **height**, some of them **emit light**, and everything else casts or passes **soft shadows**. The page stays a normal website: layout, scrolling, text selection, links and forms are all native DOM. One WebGL2 shader paints a light map over the page with `mix-blend-mode: multiply`.
+
+## Install
+
+<Tabs syncKey="pm">
+  <TabItem label="npm">
+
+```sh
+npm install domlamps
+```
+
+  </TabItem>
+  <TabItem label="pnpm">
+
+```sh
+pnpm add domlamps
+```
+
+  </TabItem>
+  <TabItem label="bun">
+
+```sh
+bun add domlamps
+```
+
+  </TabItem>
+</Tabs>
+
+Or with no build step, from a CDN:
+
+```html
+<script type="module" src="https://cdn.jsdelivr.net/npm/domlamps/dist/define.js"></script>
+```
+
+## Your first scene
+
+Three things make a scene: the engine, some **boxes**, and at least one **light**.
+
+```html
+<!-- 1. Start the engine once per page (or `import 'domlamps/define'` from your bundle). -->
+<dom-lamps ambient="#1b1e26"></dom-lamps>
+<script type="module" src="https://cdn.jsdelivr.net/npm/domlamps/dist/define.js"></script>
+
+<!-- 2. Boxes: any element with data-box. --lamp-z is its height in CSS px. -->
+<div data-box style="--lamp-z: 90">A pillar</div>
+<div data-box data-material="glass" style="--lamp-z: 30; --lamp-tint: #2fd0e3">Glass</div>
+
+<!-- 3. Lights: any element with data-light, positioned like any absolute element. -->
+<span data-light class="domlamps-light"
+      style="left: 40%; top: 200px; --lamp-height: 140; --lamp-radius: 640; --lamp-color: #ffe3bd"></span>
+```
+
+That's it. The engine finds every `[data-box]` and `[data-light]` on the page, watches them for changes, and re-renders only when something moves.
+
+:::tip
+`.domlamps-light` is an optional style for a visible "bulb". It needs `domlamps/domlamps.css`, which also registers the custom properties before any script runs.
+:::
+
+```js
+import 'domlamps/domlamps.css';
+```
+
+## Or drive it from JavaScript
+
+```js
+import { DomLamps } from 'domlamps';
+
+const lamps = new DomLamps({ scale: 0.5 });
+if (!lamps.start()) {
+  // No WebGL2: the page simply renders fully lit.
+}
+```
+
+## What next
+
+- [The scene model](../scene/): how heights, lights and shadows relate.
+- [Materials](../materials/): glass, paper, metal and glowing boxes.
+- [Animation](../animation/): animate lighting with plain CSS transitions.
+- [Framework integration](../frameworks/): Astro components, React/Next.js, Vue, Svelte.
