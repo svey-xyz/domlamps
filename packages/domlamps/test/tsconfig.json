@@ -1,0 +1,7 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@vitest/browser-playwright"]
+  },
+  "include": [".", "../src", "../*.config.ts"]
+}
